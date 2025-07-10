@@ -141,30 +141,22 @@ class EmailNotifier:
             subject, first_line = self._get_email_content(msg)
             return local_date, subject, first_line
 
-        except imaplib.IMAP4.error as e:
+        except (imaplib.IMAP4.error, Exception) as e:
+            # 统一处理所有预期的和未知的错误
+            log_message = f"[EmailNotifier] IMAP 错误: {e}" if isinstance(e, imaplib.IMAP4.error) else f"[EmailNotifier] 发生未知错误: {e}"
             if self.logger:
-                self.logger.error(f"[EmailNotifier] IMAP 错误: {e}")
+                self.logger.error(log_message)
             else:
-                print(f"IMAP 错误: {e}")
-            # 正确释放连接资源
+                print(log_message)
+            
+            # 统一的清理逻辑
             if self.mail:
                 try:
                     self.mail.logout()
                 except Exception:
-                    pass  # 忽略登出时的错误
-            self.mail = None # 强制下次重连
-        except Exception as e:
-            if self.logger:
-                self.logger.error(f"[EmailNotifier] 发生未知错误: {e}")
-            else:
-                print(f"发生未知错误: {e}")
-            # 正确释放连接资源
-            if self.mail:
-                try:
-                    self.mail.logout()
-                except Exception:
-                    pass  # 忽略登出时的错误
+                    pass  # 注销失败也无需额外操作
             self.mail = None
+            return None  # 确保出错时返回 None
 
 
     def run(self, interval=10):
