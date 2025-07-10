@@ -162,6 +162,9 @@ class EmailNotixion(Star):
         # ── 账号管理 ──
         if action in {"add", "a"}:
             if arg and self._add_account(arg):
+                # 如果服务正在运行，重新加载通知器
+                if self._is_running:
+                    self._init_notifiers()
                 yield event.plain_result("[EmailNotixion] 已添加账号 ✅")
             else:
                 yield event.plain_result("用法: /email add imap,user@domain,password (或账号已存在)")
@@ -169,6 +172,9 @@ class EmailNotixion(Star):
 
         if action in {"del", "remove"}:
             if arg and self._del_account(arg):
+                # 如果服务正在运行，重新加载通知器
+                if self._is_running:
+                    self._init_notifiers()
                 yield event.plain_result("[EmailNotixion] 已删除账号 ✅")
             else:
                 yield event.plain_result("用法: /email del user (或未找到账号)")

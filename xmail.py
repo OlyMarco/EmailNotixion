@@ -149,14 +149,25 @@ class EmailNotifier:
                 self.logger.error(f"[EmailNotifier] IMAP 错误: {e}")
             else:
                 print(f"IMAP 错误: {e}")
+            # 正确释放连接资源
+            if self.mail:
+                try:
+                    self.mail.logout()
+                except Exception:
+                    pass  # 忽略登出时的错误
             self.mail = None # 强制下次重连
         except Exception as e:
             if self.logger:
                 self.logger.error(f"[EmailNotifier] 发生未知错误: {e}")
             else:
                 print(f"发生未知错误: {e}")
-        
-        return None
+            # 正确释放连接资源
+            if self.mail:
+                try:
+                    self.mail.logout()
+                except Exception:
+                    pass  # 忽略登出时的错误
+            self.mail = None
 
 
     def run(self, interval=10):
