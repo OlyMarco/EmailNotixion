@@ -1,0 +1,13 @@
+{
+  "accounts": {
+    "description": "邮箱账户列表，每项格式 imap,user@domain,password",
+    "type": "list",
+    "default": []
+  },
+  "interval": {
+    "description": "邮件推送间隔（秒）",
+    "type": "float",
+    "default": 3,
+    "hint": "最小 0.5 秒；修改后立即生效"
+  }
+}
