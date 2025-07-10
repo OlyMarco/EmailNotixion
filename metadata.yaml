@@ -1,7 +1,5 @@
 name: EmailNotixion
-desc: 实时IMAP邮件推送插件
-version: v1.0.0
 author: Temmie
+version: v1.0.0
+desc: "实时IMAP邮件推送插件"
 repo: https://github.com/OlyMarco/EmailNotixion
-tags: ["邮箱","email","推送",“工具”]
-social_link: ""
