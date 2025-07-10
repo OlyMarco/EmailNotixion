@@ -70,8 +70,17 @@ class EmailNotixion(Star):
     def _del_account(self, user: str) -> bool:
         user = user.strip()
         accounts = self._get_accounts()
-        new_accounts = [a for a in accounts if not a.startswith(user)]
-        if len(new_accounts) != len(accounts):
+        # 改为精确匹配：检查账号中的用户部分是否完全匹配
+        new_accounts = []
+        found = False
+        for account in accounts:
+            parts = account.split(',')
+            if len(parts) >= 2 and parts[1].strip() == user:
+                found = True  # 找到匹配的账号，跳过它（即删除）
+            else:
+                new_accounts.append(account)  # 保留不匹配的账号
+        
+        if found:
             self._set_accounts(new_accounts)
             return True
         return False
@@ -177,7 +186,7 @@ class EmailNotixion(Star):
                     self._init_notifiers()
                 yield event.plain_result("[EmailNotixion] 已删除账号 ✅")
             else:
-                yield event.plain_result("用法: /email del user (或未找到账号)")
+                yield event.plain_result("用法: /email del user@domain.com (需要完整邮箱地址，或未找到账号)")
             return
 
         if action == "list":
@@ -237,9 +246,13 @@ class EmailNotixion(Star):
         
         self._is_running = False
         
-        # 取消邮件监控任务
+        # 取消并等待邮件监控任务完成
         if self._email_task:
             self._email_task.cancel()
+            try:
+                await self._email_task
+            except asyncio.CancelledError:
+                pass  # 任务被正常取消
             self._email_task = None
         
         # 清理邮件通知器 - 使用 asyncio.to_thread 避免阻塞
@@ -261,9 +274,5 @@ class EmailNotixion(Star):
     # ───────────────────────── 卸载清理 ─────────────────────────
 
     async def terminate(self):
+        """插件卸载时的清理工作"""
         await self._stop_email_service()
-        if self._email_task:
-            try:
-                await self._email_task
-            except asyncio.CancelledError:
-                pass
