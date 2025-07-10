@@ -130,14 +130,11 @@ class EmailNotifier:
 
             msg = email_stdlib.message_from_bytes(msg_data[0][1])
             
-            # 检查邮件日期是否在1分钟内
+            # 获取邮件日期
             local_date = None
             date_tuple = email_stdlib.utils.parsedate_tz(msg['Date'])
             if date_tuple:
                 local_date = datetime.fromtimestamp(email_stdlib.utils.mktime_tz(date_tuple))
-                if datetime.now() - local_date > timedelta(minutes=1):
-                    self.last_uid = latest_uid # 将旧邮件也标记为已读
-                    return None # 邮件太旧
 
             # ④ 更新ID并返回邮件内容
             self.last_uid = latest_uid
