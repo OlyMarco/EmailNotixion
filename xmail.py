@@ -182,17 +182,31 @@ class EmailNotifier:
             time.sleep(interval)
 
 if __name__ == "__main__":
-    # ⚠️ 注意：在生产环境中，请使用环境变量或配置文件来加载敏感信息
-    # 示例：HOST = os.getenv('EMAIL_HOST', 'imap.example.com')
-    #      USER = os.getenv('EMAIL_USER', 'user@example.com')
-    #      TOKEN = os.getenv('EMAIL_TOKEN', 'your_app_password')
+    # ⚠️ 安全注意：在生产环境中，请使用环境变量来加载敏感信息
+    # 设置环境变量示例：
+    # export EMAIL_HOST=imap.example.com
+    # export EMAIL_USER=user@example.com  
+    # export EMAIL_TOKEN=your_app_password
     
-    HOST = os.getenv('EMAIL_HOST', 'imap.cuc.edu.cn')
-    USER = os.getenv('EMAIL_USER', 'xxx@cuc.edu.cn')
-    TOKEN = os.getenv('EMAIL_TOKEN', 'xxxxxxxxxxxx')  # 应用专用密码
+    HOST = os.getenv('EMAIL_HOST')
+    USER = os.getenv('EMAIL_USER')
+    TOKEN = os.getenv('EMAIL_TOKEN')
+    
+    # 检查必要的环境变量
+    if not all([HOST, USER, TOKEN]):
+        print("错误：请设置必要的环境变量：")
+        print("  EMAIL_HOST - IMAP服务器地址")
+        print("  EMAIL_USER - 邮箱地址")  
+        print("  EMAIL_TOKEN - 应用专用密码")
+        print("\n示例：")
+        print("  export EMAIL_HOST=imap.gmail.com")
+        print("  export EMAIL_USER=user@gmail.com")
+        print("  export EMAIL_TOKEN=your_app_password")
+        exit(1)
 
     notifier = EmailNotifier(HOST, USER, TOKEN)
     try:
+        print(f"开始监控邮箱: {USER}")
         notifier.run(interval=3)
     except KeyboardInterrupt:
         print("\n程序已停止。")

@@ -43,7 +43,7 @@
 | 用法 | 说明 |
 |------|------|
 | `/email add imap.server.com,user@domain.com,password` | 添加邮箱账号 |
-| `/email del user@domain.com` | 删除指定邮箱账号（需要完整邮箱地址） |
+| `/email del user@domain.com` | 删除指定邮箱账号（需要完整邮箱地址，精确匹配） |
 
 ## 配置说明
 
@@ -144,6 +144,26 @@ A: **不安全**。本插件将密码以明文形式存储在配置文件中，�
 - 确保配置文件访问权限受限
 - 定期更换密码
 - 如有高安全要求，请考虑其他解决方案
+
+## 开发者说明
+
+### 环境变量配置（用于独立运行 xmail.py）
+
+如果需要独立测试 `xmail.py` 模块，请设置以下环境变量：
+
+```bash
+# Linux/Mac
+export EMAIL_HOST=imap.gmail.com
+export EMAIL_USER=your-email@gmail.com
+export EMAIL_TOKEN=your-app-password
+
+# Windows
+set EMAIL_HOST=imap.gmail.com
+set EMAIL_USER=your-email@gmail.com
+set EMAIL_TOKEN=your-app-password
+```
+
+⚠️ **安全提醒**：绝对不要在代码中硬编码真实的邮箱凭据。
 
 ## 技术说明
 

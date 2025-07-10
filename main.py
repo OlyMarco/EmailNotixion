@@ -23,7 +23,7 @@ class EmailNotixion(Star):
     | `/email` | 开/关切换 |
     | `/email on` / `off` | 显式开/关 |
     | `/email add imap,user@domain,password` | 添加账号 |
-    | `/email del user` | 删除账号 (前缀匹配 user@) |
+    | `/email del user@domain.com` | 删除账号（需要完整邮箱地址，精确匹配） |
     | `/email list` | 查看账号列表 |
     | `/email interval <秒>` | 设置推送间隔；不带参数查看当前值 |
     """
@@ -57,6 +57,18 @@ class EmailNotixion(Star):
         self.config.save_config()
 
     def _add_account(self, entry: str) -> bool:
+        """
+        添加邮箱账号配置
+        
+        Args:
+            entry: 账号配置字符串，格式为 "imap_server,email,password"
+            
+        Returns:
+            bool: 添加成功返回 True，账号已存在返回 False
+            
+        Note:
+            ⚠️ 安全警告：密码将以明文形式存储在配置文件中
+        """
         entry = entry.strip()
         if not entry:
             return False
@@ -64,19 +76,36 @@ class EmailNotixion(Star):
         if entry not in accounts:
             accounts.append(entry)
             self._set_accounts(accounts)
+            # 解析并记录添加的账号（不记录密码）
+            parts = entry.split(',')
+            if len(parts) >= 2:
+                logger.info(f"[EmailNotixion] 添加账号: {parts[1].strip()}")
             return True
         return False
 
     def _del_account(self, user: str) -> bool:
+        """
+        删除指定的邮箱账号
+        
+        Args:
+            user: 完整的邮箱地址（如 user@domain.com）
+            
+        Returns:
+            bool: 删除成功返回 True，未找到账号返回 False
+            
+        Note:
+            使用精确匹配，只会删除完全匹配的邮箱账号
+        """
         user = user.strip()
         accounts = self._get_accounts()
-        # 改为精确匹配：检查账号中的用户部分是否完全匹配
+        # 精确匹配：检查账号配置中的用户部分是否完全匹配
         new_accounts = []
         found = False
         for account in accounts:
             parts = account.split(',')
             if len(parts) >= 2 and parts[1].strip() == user:
                 found = True  # 找到匹配的账号，跳过它（即删除）
+                logger.info(f"[EmailNotixion] 删除账号: {user}")
             else:
                 new_accounts.append(account)  # 保留不匹配的账号
         
@@ -92,7 +121,16 @@ class EmailNotixion(Star):
         logger.info(f"[EmailNotixion] ⏱ 推送间隔更新为 {self._interval}s")
 
     async def _send_email_notification(self, target: str, user: str, email_time, subject: str, first_line: str):
-        """发送邮件通知"""
+        """
+        发送邮件通知到指定目标
+        
+        Args:
+            target: 目标群组或用户ID
+            user: 邮箱地址
+            email_time: 邮件时间
+            subject: 邮件主题
+            first_line: 邮件内容第一行
+        """
         message = f"📧 新邮件通知 ({user})\n"
         if email_time:
             message += f"时间: {email_time.strftime('%Y-%m-%d %H:%M:%S')}\n"
@@ -103,7 +141,11 @@ class EmailNotixion(Star):
         await self.context.send_message(target, chain)
 
     def _init_notifiers(self):
-        """初始化邮件通知器"""
+        """
+        初始化邮件通知器
+        
+        从配置中读取账号信息并创建对应的 EmailNotifier 实例
+        """
         self._notifiers.clear()
         accounts = self._get_accounts()
         
@@ -111,7 +153,7 @@ class EmailNotixion(Star):
             try:
                 parts = account.split(',')
                 if len(parts) != 3:
-                    logger.warning(f"[EmailNotixion] 账号格式错误: {account}")
+                    logger.warning(f"[EmailNotixion] 账号格式错误，应为 'imap,user@domain,password': {account}")
                     continue
                 
                 host, user, password = parts
