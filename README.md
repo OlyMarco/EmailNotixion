@@ -1,4 +1,4 @@
-# 📧 EmailNotixion## 🎯 为什么选择 EmailNotixion？ | Why Choose EmailNotixion?
+# 📧 EmailNotixion
 
 <div a## 🚀 快速开始 | Quick Start
 
@@ -21,7 +21,7 @@ git clone https://github.com/OlyMarco/EmailNotixion.git
 
 ```bash
 # 1️⃣ 下载 xmail.py 文件
-wget https://raw.githubusercontent.com/OlyMarco/EmailNotixion/main/xmail.py
+wget https://github.com/OlyMarco/EmailNotixion/blob/master/xmail.py
 
 # 2️⃣ 直接在 Python 项目中使用
 # Use directly in your Python project
@@ -85,10 +85,6 @@ python xmail.py
 
 **🔧 同时也是独立的 Python IMAP 邮件监控模块 | Also a standalone Python IMAP email monitoring module 🔧**
 
-[![GitHub stars](https://img.shields.io/github/stars/OlyMarco/EmailNotixion?style=for-the-badge&logo=github&color=ff6b6b)](https://github.com/OlyMarco/EmailNotixion/stargazers)
-[![GitHub forks](https://img.shields.io/github/forks/OlyMarco/EmailNotixion?style=for-the-badge&logo=github&color=4ecdc4)](https://github.com/OlyMarco/EmailNotixion/network)
-[![GitHub license](https://img.shields.io/github/license/OlyMarco/EmailNotixion?style=for-the-badge&logo=github&color=45b7d1)](https://github.com/OlyMarco/EmailNotixion/blob/main/LICENSE)
-
 *🚀 让您的 AstrBot 实时推送邮件通知，再也不错过重要邮件！*
 
 *🚀 Make your AstrBot push email notifications in real-time, never miss important emails again!*
@@ -101,22 +97,9 @@ python xmail.py
 
 ---
 
-## 🎯 为什么选择 EmailNotixion？ | Why Choose EmailNotixion?
-
-<div align="center">
-
-| � **特性** | 📝 **说明** | 🌍 **Feature** | 📝 **Description** |
-|:---:|:---:|:---:|:---:|
-| ⚡ **闪电推送** | 1分钟内新邮件即时通知 | ⚡ **Lightning Push** | Instant notification within 1 minute |
-| 🔄 **多账号监控** | 同时监控多个邮箱账号 | 🔄 **Multi-Account** | Monitor multiple email accounts |
-| �️ **安全可靠** | SSL加密连接，自动重连 | 🛡️ **Secure & Reliable** | SSL encrypted, auto-reconnection |
-| 🎨 **简单易用** | 一键命令管理所有功能 | 🎨 **Easy to Use** | One-click command management |
-
-</div>
-
 ## 🚀 快速开始 | Quick Start
 
-### � 安装 Installation
+### 安装 Installation
 
 ```bash
 # 1️⃣ 克隆到 AstrBot 插件目录
@@ -129,7 +112,7 @@ git clone https://github.com/OlyMarco/EmailNotixion.git
 # Start using!
 ```
 
-### � 基本使用 Basic Usage
+### 基本使用 Basic Usage
 
 ```bash
 # 🔥 核心命令 Core Commands
@@ -144,7 +127,7 @@ git clone https://github.com/OlyMarco/EmailNotixion.git
 /email del user@gmail.com                          # ➖ 删除账号
 ```
 
-## 📚 支持的邮箱 | Supported Email Providers
+## 支持的邮箱 | Supported Email Providers
 
 <div align="center">
 
@@ -155,10 +138,11 @@ git clone https://github.com/OlyMarco/EmailNotixion.git
 | **QQ邮箱** | `imap.qq.com` | `993` | `/email add imap.qq.com,user@qq.com,auth_code` |
 | **163邮箱** | `imap.163.com` | `993` | `/email add imap.163.com,user@163.com,auth_code` |
 | **126邮箱** | `imap.126.com` | `993` | `/email add imap.126.com,user@126.com,auth_code` |
+|  |  |  |  |
 
 </div>
 
-## �️ 高级配置 | Advanced Configuration
+## 高级配置 | Advanced Configuration
 
 ### 📋 配置文件 Configuration File
 
@@ -204,7 +188,7 @@ git clone https://github.com/OlyMarco/EmailNotixion.git
 
 ## 🎨 使用示例 | Usage Examples
 
-### � AstrBot 微信聊天界面演示 | AstrBot WeChat Chat Interface Demo
+### AstrBot 微信聊天界面演示 | AstrBot WeChat Chat Interface Demo
 
 <div align="center">
 
@@ -216,7 +200,7 @@ git clone https://github.com/OlyMarco/EmailNotixion.git
 
 </div>
 
-### �📧 邮件通知效果 | Email Notification Effect
+### 📧 邮件通知效果 | Email Notification Effect
 
 ```
 📧 新邮件通知 (user@gmail.com)
@@ -381,8 +365,5 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 ### 🌟 If this plugin helps you, please consider giving it a ⭐️
 
 **🚀 Made with ❤️ by [Temmie](https://github.com/OlyMarco)**
-
-[![GitHub followers](https://img.shields.io/github/followers/OlyMarco?style=social)](https://github.com/OlyMarco)
-[![Twitter Follow](https://img.shields.io/twitter/follow/OlyMarco?style=social)](https://twitter.com/OlyMarco)
 
 </div>
