@@ -106,7 +106,7 @@ class EmailNotixion(Star):
                     continue
                 
                 host, user, password = parts
-                notifier = EmailNotifier(host.strip(), user.strip(), password.strip())
+                notifier = EmailNotifier(host.strip(), user.strip(), password.strip(), logger)
                 self._notifiers[user.strip()] = notifier
                 logger.info(f"[EmailNotixion] 已初始化账号: {user.strip()}")
             except Exception as e:
@@ -118,7 +118,8 @@ class EmailNotixion(Star):
             try:
                 # 检查所有账号的新邮件
                 for user, notifier in self._notifiers.items():
-                    notification = notifier.check_and_notify()
+                    # 使用 asyncio.to_thread 避免阻塞事件循环
+                    notification = await asyncio.to_thread(notifier.check_and_notify)
                     if notification:
                         email_time, subject, first_line = notification
                         
@@ -191,7 +192,7 @@ class EmailNotixion(Star):
             if uid in self._targets:
                 self._targets.discard(uid)
                 if not self._targets:
-                    self._stop_email_service()
+                    await self._stop_email_service()
                 yield event.plain_result("[EmailNotixion] ✅ 已关闭邮件推送")
             else:
                 yield event.plain_result("[EmailNotixion] 未开启，无需关闭")
@@ -201,7 +202,7 @@ class EmailNotixion(Star):
         if uid in self._targets:
             self._targets.discard(uid)
             if not self._targets:
-                self._stop_email_service()
+                await self._stop_email_service()
             yield event.plain_result("[EmailNotixion] ✅ 已关闭邮件推送")
         else:
             self._targets.add(uid)
@@ -223,7 +224,7 @@ class EmailNotixion(Star):
         self._email_task = asyncio.create_task(self._email_monitor_loop())
         logger.info("[EmailNotixion] 邮件推送服务已启动")
 
-    def _stop_email_service(self):
+    async def _stop_email_service(self):
         """停止邮件推送服务"""
         if not self._is_running:
             return
@@ -235,21 +236,26 @@ class EmailNotixion(Star):
             self._email_task.cancel()
             self._email_task = None
         
-        # 清理邮件通知器
-        for notifier in self._notifiers.values():
+        # 清理邮件通知器 - 使用 asyncio.to_thread 避免阻塞
+        async def cleanup_notifier(notifier):
             if notifier.mail:
                 try:
-                    notifier.mail.logout()
+                    await asyncio.to_thread(notifier.mail.logout)
                 except Exception:
                     pass
-        self._notifiers.clear()
         
+        # 并发清理所有通知器
+        cleanup_tasks = [cleanup_notifier(notifier) for notifier in self._notifiers.values()]
+        if cleanup_tasks:
+            await asyncio.gather(*cleanup_tasks, return_exceptions=True)
+        
+        self._notifiers.clear()
         logger.info("[EmailNotixion] 邮件推送服务已停止")
 
     # ───────────────────────── 卸载清理 ─────────────────────────
 
     async def terminate(self):
-        self._stop_email_service()
+        await self._stop_email_service()
         if self._email_task:
             try:
                 await self._email_task
