@@ -9,5 +9,11 @@
     "type": "float",
     "default": 3,
     "hint": "最小 0.5 秒；修改后立即生效"
+  },
+  "text_num": {
+    "description": "邮件主题和内容的最大字符数",
+    "type": "int",
+    "default": 50,
+    "hint": "超出部分将显示为...，最小值为 10"
   }
 }

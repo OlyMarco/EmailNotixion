@@ -11,7 +11,7 @@ from .xmail import EmailNotifier
     "EmailNotixion",
     "Temmie",
     "实时 IMAP 邮件推送插件",
-    "v1.0.0",
+    "v1.0.1",
     "https://github.com/OlyMarco/EmailNotixion",
 )
 class EmailNotixion(Star):
@@ -37,12 +37,15 @@ class EmailNotixion(Star):
         # 确保配置键存在
         self.config.setdefault("accounts", [])
         self.config.setdefault("interval", 3)  # 默认 3 秒
+        self.config.setdefault("text_num", 50)  # 默认 50 字符
         self.config.save_config()
 
         self._interval: float = max(float(self.config["interval"]), 0.5)  # 下限 0.5s
+        self._text_num: int = max(int(self.config["text_num"]), 10)  # 下限 10 字符
         self._targets: set[str] = set()
         self._notifiers: dict[str, EmailNotifier] = {}
         self._is_running: bool = False
+        self.event: AstrMessageEvent = None  # 用于存储事件实例
 
         self._email_task = None
         logger.info(f"[EmailNotixion] ⏳ 邮件推送服务已初始化 (interval={self._interval}s)")
@@ -133,12 +136,15 @@ class EmailNotixion(Star):
         """
         message = f"📧 新邮件通知 ({user})\n"
         if email_time:
-            message += f"时间: {email_time.strftime('%Y-%m-%d %H:%M:%S')}\n"
-        message += f"主题: {subject}\n"
-        message += f"内容: {first_line}"
+            message += f" | 时间: {email_time.strftime('%Y-%m-%d %H:%M:%S')}\n"
+        message += f" | 主题: {subject}\n"
+        message += f" | 内容: {first_line}"
         
         chain = MessageChain().message(message)
-        await self.context.send_message(target, chain)
+        try:
+            await self.context.send_message(target, chain)
+        except Exception as e:
+            await self.event.send(chain)
 
     def _init_notifiers(self):
         """
@@ -158,6 +164,7 @@ class EmailNotixion(Star):
                 
                 host, user, password = parts
                 notifier = EmailNotifier(host.strip(), user.strip(), password.strip(), logger)
+                notifier.text_num = self._text_num  # 设置文本长度限制
                 self._notifiers[user.strip()] = notifier
                 logger.info(f"[EmailNotixion] 已初始化账号: {user.strip()}")
             except Exception as e:
@@ -192,6 +199,7 @@ class EmailNotixion(Star):
 
     @filter.command("email", alias={"mail"})
     async def cmd_email(self, event: AstrMessageEvent, sub: str | None = None, arg: str | None = None):
+        self.event = event  # 存储事件实例以供后续使用
         uid = event.unified_msg_origin
         action = (sub or "toggle").lower()
 
@@ -255,17 +263,31 @@ class EmailNotixion(Star):
                 yield event.plain_result("[EmailNotixion] 未开启，无需关闭")
             return
 
-        # toggle (默认)
-        if uid in self._targets:
-            self._targets.discard(uid)
-            if not self._targets:
-                await self._stop_email_service()
-            yield event.plain_result("[EmailNotixion] ✅ 已关闭邮件推送")
-        else:
-            self._targets.add(uid)
-            if not self._is_running:
-                self._start_email_service()
-            yield event.plain_result(f"[EmailNotixion] ⏳ 已开启邮件推送 (每 {self._interval}s)")
+        # 默认显示帮助信息
+        help_text = """[EmailNotixion] 邮件推送插件指令帮助
+
+📧 基本指令：
+  /email on          开启邮件推送
+  /email off         关闭邮件推送
+  /email list        查看账号列表
+
+⚙️ 账号管理：
+  /email add <配置>   添加邮箱账号
+    格式: imap,user@domain,password
+    示例: /email add imap.gmail.com,test@gmail.com,app_password
+  /email del <邮箱>   删除邮箱账号
+    示例: /email del test@gmail.com
+
+🔧 设置选项：
+  /email interval <秒>  设置推送间隔
+    示例: /email interval 5
+  /email interval      查看当前间隔
+
+💡 提示：
+  - 使用应用专用密码，不要使用登录密码
+  - 推送间隔建议3-10秒
+  - 当前版本: v1.0.1"""
+        yield event.plain_result(help_text)
 
     # ───────────────────────── 服务管理 ─────────────────────────
 

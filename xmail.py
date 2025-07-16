@@ -33,6 +33,7 @@ class EmailNotifier:
         self.last_uid = None
         self.mail = None
         self.logger = logger  # 可选的外部日志记录器
+        self.text_num = 50  # 默认文本长度限制
 
     def _connect(self):
         """
@@ -59,7 +60,7 @@ class EmailNotifier:
         self.mail.select("INBOX")
 
     def _get_email_content(self, msg):
-        """从邮件消息中解析主题和正文第一行。"""
+        """从邮件消息中解析主题和正文内容，限制text_num个字符。"""
         subject = ""
         # 解码主题
         if msg['Subject']:
@@ -69,26 +70,49 @@ class EmailNotifier:
                     subject = subject.decode()
             except Exception:
                 subject = msg['Subject'] # Fallback
+        
+        # 限制主题长度为text_num个字符
+        if len(subject) > self.text_num:
+            subject = subject[:self.text_num] + "..."
 
-        first_line = "（无文本内容）"
+        content = "（无文本内容）"
+        
+        # 只处理纯文本内容
         if msg.is_multipart():
             for part in msg.walk():
                 if part.get_content_type() == "text/plain":
                     try:
                         payload = part.get_payload(decode=True).decode(part.get_content_charset() or 'utf-8')
-                        first_line = payload.strip().split('\n')[0]
+                        content = self._process_content(payload)
                         break
                     except Exception:
                         continue
         else:
             if msg.get_content_type() == "text/plain":
-                 try:
+                try:
                     payload = msg.get_payload(decode=True).decode(msg.get_content_charset() or 'utf-8')
-                    first_line = payload.strip().split('\n')[0]
-                 except Exception:
+                    content = self._process_content(payload)
+                except Exception:
                     pass # Keep default
         
-        return subject, first_line.strip()
+        return subject, content
+
+    def _process_content(self, text):
+        """处理文本内容，统一换行符并限制长度。"""
+        if not text:
+            return "（无文本内容）"
+        
+        # 统一换行符处理：将所有类型的换行符转换为空格
+        text = text.replace('\r\n', ' ').replace('\r', ' ').replace('\n', ' ')
+        
+        # 清理多余空格
+        text = ' '.join(text.split())
+        
+        # 限制长度为text_num个字符
+        if len(text) > self.text_num:
+            text = text[:self.text_num] + "..."
+        
+        return text.strip() if text.strip() else "（无文本内容）"
 
     def check_and_notify(self):
         """
