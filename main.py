@@ -11,7 +11,7 @@ from .xmail import EmailNotifier
     "EmailNotixion",
     "Temmie",
     "实时 IMAP 邮件推送插件",
-    "v1.0.1",
+    "v1.0.2",
     "https://github.com/OlyMarco/EmailNotixion",
 )
 class EmailNotixion(Star):
@@ -20,12 +20,13 @@ class EmailNotixion(Star):
     ### 指令 `/email`（`/mail` 别名）
     | 用法 | 说明 |
     |------|------|
-    | `/email` | 开/关切换 |
+    | `/email` | 显示当前状态 |
     | `/email on` / `off` | 显式开/关 |
     | `/email add imap,user@domain,password` | 添加账号 |
     | `/email del user@domain.com` | 删除账号（需要完整邮箱地址，精确匹配） |
     | `/email list` | 查看账号列表 |
     | `/email interval <秒>` | 设置推送间隔；不带参数查看当前值 |
+    | `/email help` | 查看详细帮助信息 |
     """
 
     # ─────────────────────────── 初始化 ───────────────────────────
@@ -245,28 +246,11 @@ class EmailNotixion(Star):
             yield event.plain_result(text)
             return
 
-        # ── 开关控制 ──
-        if action in {"on", "start", "enable"}:
-            self._targets.add(uid)
-            if not self._is_running:
-                self._start_email_service()
-            yield event.plain_result(f"[EmailNotixion] ⏳ 邮件推送已开启 (每 {self._interval}s)")
-            return
-
-        if action in {"off", "stop", "disable"}:
-            if uid in self._targets:
-                self._targets.discard(uid)
-                if not self._targets:
-                    await self._stop_email_service()
-                yield event.plain_result("[EmailNotixion] ✅ 已关闭邮件推送")
-            else:
-                yield event.plain_result("[EmailNotixion] 未开启，无需关闭")
-            return
-
-        # 默认显示帮助信息
-        help_text = """[EmailNotixion] 邮件推送插件指令帮助
+        if action == "help":
+            help_text = """[EmailNotixion] 邮件推送插件指令帮助
 
 📧 基本指令：
+  /email             查看当前状态
   /email on          开启邮件推送
   /email off         关闭邮件推送
   /email list        查看账号列表
@@ -286,8 +270,46 @@ class EmailNotixion(Star):
 💡 提示：
   - 使用应用专用密码，不要使用登录密码
   - 推送间隔建议3-10秒
-  - 当前版本: v1.0.1"""
-        yield event.plain_result(help_text)
+  - 当前版本: v1.0.2"""
+            yield event.plain_result(help_text)
+            return
+
+        # ── 开关控制 ──
+        if action in {"on", "start", "enable"}:
+            self._targets.add(uid)
+            if not self._is_running:
+                self._start_email_service()
+            yield event.plain_result(f"[EmailNotixion] ⏳ 邮件推送已开启 (每 {self._interval}s)")
+            return
+
+        if action in {"off", "stop", "disable"}:
+            if uid in self._targets:
+                self._targets.discard(uid)
+                if not self._targets:
+                    await self._stop_email_service()
+                yield event.plain_result("[EmailNotixion] ✅ 已关闭邮件推送")
+            else:
+                yield event.plain_result("[EmailNotixion] 未开启，无需关闭")
+            return
+
+        # 默认显示当前状态信息
+        status = "启用" if self._is_running else "禁用"
+        active_targets = len(self._targets)
+        accounts_count = len(self._get_accounts())
+        
+        status_text = f"""[EmailNotixion] 当前状态
+
+📊 运行状态: {status}
+👥 活跃目标: {active_targets} 个
+📧 配置账号: {accounts_count} 个
+⏱️ 检查间隔: {self._interval} 秒
+📝 字符上限: {self._text_num} 字符
+
+💡 快速指令:
+  /email on/off      开启/关闭推送
+  /email add <配置>   添加账号
+  /email help        查看所有指令"""
+        yield event.plain_result(status_text)
 
     # ───────────────────────── 服务管理 ─────────────────────────
 
