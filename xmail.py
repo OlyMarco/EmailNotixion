@@ -195,7 +195,7 @@ class EmailNotifier:
         
         返回值：
         - None: 无新邮件或发生错误
-        - tuple: (时间, 主题, 第一行内容)
+        - tuple: (时间, 主题, 邮件内容)
         """
         try:
             self._connect()
@@ -234,8 +234,8 @@ class EmailNotifier:
 
             # ④ 更新ID并返回邮件内容
             self.last_uid = latest_uid
-            subject, first_line = self._get_email_content(msg)
-            return local_date, subject, first_line
+            subject, mail_content = self._get_email_content(msg)
+            return local_date, subject, mail_content
 
         except (imaplib.IMAP4.error, Exception) as e:
             # 统一处理所有预期的和未知的错误
@@ -265,7 +265,7 @@ class EmailNotifier:
         while True:
             notification = self.check_and_notify()
             if notification:
-                email_time, subject, first_line = notification
+                email_time, subject, mail_content = notification
                 if self.logger:
                     self.logger.info(f"[EmailNotifier] 新邮件通知 - 主题: {subject}")
                 else:
@@ -273,7 +273,7 @@ class EmailNotifier:
                     if email_time:
                         print(f"时间: {email_time.strftime('%Y-%m-%d %H:%M:%S')}")
                     print(f"主题: {subject}")
-                    print(f"内容: {first_line}")
+                    print(f"内容: {mail_content}")
                     print("--------------------")
             time.sleep(interval)
 
