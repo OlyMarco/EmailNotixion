@@ -15,6 +15,7 @@ import imaplib
 import email as email_stdlib
 import time
 import os
+import re
 from datetime import datetime, timedelta, timezone
 
 class EmailNotifier:
@@ -59,6 +60,52 @@ class EmailNotifier:
                 print("连接成功。")
         self.mail.select("INBOX")
 
+    def _html_to_text(self, html_content):
+        """
+        将HTML内容转换为纯文本
+        首先解码quoted-printable编码，然后去除HTML标签
+        """
+        if not html_content:
+            return ""
+        
+        # 先处理quoted-printable编码（如=E5=B0=8A=E6=95=AC）
+        def decode_quoted_printable(match):
+            try:
+                hex_string = match.group(0).replace('=', '')
+                if len(hex_string) % 2 == 0:
+                    bytes_data = bytes.fromhex(hex_string)
+                    return bytes_data.decode('utf-8', errors='ignore')
+                return match.group(0)
+            except:
+                return match.group(0)
+        
+        # 解码quoted-printable编码
+        text = re.sub(r'(?:=[0-9A-F]{2})+', decode_quoted_printable, html_content)
+        
+        # 处理3D等号编码 (如 =3D)
+        text = text.replace('=3D', '=')
+        
+        # 去除HTML标签（包括样式和脚本）
+        text = re.sub(r'<style[^>]*>.*?</style>', '', text, flags=re.DOTALL | re.IGNORECASE)
+        text = re.sub(r'<script[^>]*>.*?</script>', '', text, flags=re.DOTALL | re.IGNORECASE)
+        text = re.sub(r'<[^>]+>', '', text)
+        
+        # 解码HTML实体
+        html_entities = {
+            '&nbsp;': ' ', '&lt;': '<', '&gt;': '>', '&amp;': '&',
+            '&quot;': '"', '&apos;': "'", '&copy;': '©', '&reg;': '®',
+            '&trade;': '™', '&mdash;': '—', '&ndash;': '–',
+            '&hellip;': '...', '&laquo;': '«', '&raquo;': '»'
+        }
+        
+        for entity, char in html_entities.items():
+            text = text.replace(entity, char)
+        
+        # 去除多余空白字符
+        text = re.sub(r'\s+', ' ', text)
+        
+        return text.strip()
+
     def _get_email_content(self, msg):
         """从邮件消息中解析主题和正文内容，限制text_num个字符。"""
         subject = ""
@@ -77,23 +124,48 @@ class EmailNotifier:
 
         content = "（无文本内容）"
         
-        # 只处理纯文本内容
+        # 处理多部分和单部分邮件
         if msg.is_multipart():
+            # 优先寻找纯文本，如果没有则使用HTML并转换
+            text_content = None
+            html_content = None
+            
             for part in msg.walk():
-                if part.get_content_type() == "text/plain":
+                content_type = part.get_content_type()
+                if content_type == "text/plain":
                     try:
-                        payload = part.get_payload(decode=True).decode(part.get_content_charset() or 'utf-8')
-                        content = self._process_content(payload)
-                        break
+                        payload = part.get_payload(decode=True)
+                        if payload:
+                            text_content = payload.decode(part.get_content_charset() or 'utf-8')
+                            break
                     except Exception:
                         continue
+                elif content_type == "text/html" and html_content is None:
+                    try:
+                        payload = part.get_payload(decode=True)
+                        if payload:
+                            html_content = payload.decode(part.get_content_charset() or 'utf-8')
+                    except Exception:
+                        continue
+            
+            # 优先使用纯文本，否则转换HTML
+            if text_content:
+                content = self._process_content(text_content)
+            elif html_content:
+                content = self._process_content(self._html_to_text(html_content))
         else:
-            if msg.get_content_type() == "text/plain":
-                try:
-                    payload = msg.get_payload(decode=True).decode(msg.get_content_charset() or 'utf-8')
-                    content = self._process_content(payload)
-                except Exception:
-                    pass # Keep default
+            # 单部分邮件
+            content_type = msg.get_content_type()
+            try:
+                payload = msg.get_payload(decode=True)
+                if payload:
+                    text = payload.decode(msg.get_content_charset() or 'utf-8')
+                    if content_type == "text/plain":
+                        content = self._process_content(text)
+                    elif content_type == "text/html":
+                        content = self._process_content(self._html_to_text(text))
+            except Exception:
+                pass # Keep default
         
         return subject, content
 

@@ -11,7 +11,7 @@ from .xmail import EmailNotifier
     "EmailNotixion",
     "Temmie",
     "实时 IMAP 邮件推送插件",
-    "v1.0.2",
+    "v1.0.3",
     "https://github.com/OlyMarco/EmailNotixion",
 )
 class EmailNotixion(Star):
