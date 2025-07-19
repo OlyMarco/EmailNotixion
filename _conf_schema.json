@@ -15,5 +15,10 @@
     "type": "int",
     "default": 50,
     "hint": "超出部分将显示为...，最小值为 10"
+  },
+  "active_targets": {
+    "description": "活跃推送目标列表，启用推送后自动配置",
+    "type": "list",
+    "default": []
   }
 }
