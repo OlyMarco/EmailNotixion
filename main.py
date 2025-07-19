@@ -40,7 +40,7 @@ class EmailNotixion(Star):
         super().__init__(context)
         self.config = config
         
-        # 初始化配置
+        # 初始化配置参数
         self._init_config()
         
         # 运行时状态
@@ -50,27 +50,21 @@ class EmailNotixion(Star):
         self._is_running = False
         self._email_task: Optional[asyncio.Task] = None
         
-        # 检查保存的目标
-        saved_targets = self.config.get("active_targets", [])
-        if saved_targets:
-            logger.info(f"[EmailNotixion] 检测到 {len(saved_targets)} 个保存的目标，等待事件触发自动恢复...")
+        # 日志初始化信息
+        saved_count = len(self.config.get("active_targets", []))
+        if saved_count > 0:
+            logger.info(f"[EmailNotixion] 检测到 {saved_count} 个保存的目标，等待自动恢复...")
         
-        logger.info(f"[EmailNotixion] 初始化完成 (interval={self._interval}s, text_limit={self._text_num})")
+        logger.info(f"[EmailNotixion] 初始化完成 (间隔:{self._interval}s 字符上限:{self._text_num})")
 
     def _init_config(self) -> None:
         """初始化配置参数"""
-        defaults = {
-            "accounts": [],
-            "interval": 3,
-            "text_num": 50,
-            "active_targets": []
-        }
-        
-        for key, default_value in defaults.items():
-            self.config.setdefault(key, default_value)
+        # 设置默认值
+        for key, default in [("accounts", []), ("interval", 3), ("text_num", 50), ("active_targets", [])]:
+            self.config.setdefault(key, default)
         self.config.save_config()
         
-        # 设置参数（带下限保护）
+        # 应用参数（带保护下限）
         self._interval = max(float(self.config["interval"]), 0.5)
         self._text_num = max(int(self.config["text_num"]), 10)
 
@@ -80,69 +74,60 @@ class EmailNotixion(Star):
         """获取配置的邮箱账号列表"""
         return list(self.config.get("accounts", []))
 
-    def _set_accounts(self, accounts: List[str]) -> None:
-        """保存邮箱账号列表"""
-        self.config["accounts"] = accounts
-        self.config.save_config()
-
     def _add_account(self, entry: str) -> bool:
         """添加邮箱账号: 'imap_server,email,password'"""
-        entry = entry.strip()
-        if not entry:
+        if not (entry := entry.strip()):
             return False
             
         accounts = self._get_accounts()
         if entry not in accounts:
             accounts.append(entry)
-            self._set_accounts(accounts)
+            self._save_accounts(accounts)
             
-            parts = entry.split(',')
-            if len(parts) >= 2:
+            # 记录添加的账号（隐藏密码）
+            if (parts := entry.split(',')) and len(parts) >= 2:
                 logger.info(f"[EmailNotixion] 添加账号: {parts[1].strip()}")
             return True
         return False
 
     def _del_account(self, user: str) -> bool:
         """删除指定邮箱账号（精确匹配）"""
-        user = user.strip()
-        if not user:
+        if not (user := user.strip()):
             return False
             
         accounts = self._get_accounts()
-        new_accounts = []
-        found = False
+        original_count = len(accounts)
         
-        for account in accounts:
-            parts = account.split(',')
-            if len(parts) >= 2 and parts[1].strip() == user:
-                found = True
-                logger.info(f"[EmailNotixion] 删除账号: {user}")
-            else:
-                new_accounts.append(account)
+        # 过滤掉匹配的账号
+        accounts = [acc for acc in accounts 
+                   if not (len(parts := acc.split(',')) >= 2 and parts[1].strip() == user)]
         
-        if found:
-            self._set_accounts(new_accounts)
-        return found
+        if len(accounts) < original_count:
+            self._save_accounts(accounts)
+            logger.info(f"[EmailNotixion] 删除账号: {user}")
+            return True
+        return False
 
-    def _set_interval(self, seconds: float) -> None:
-        """设置推送间隔"""
-        self._interval = max(seconds, 0.5)
-        self.config["interval"] = self._interval
+    def _save_accounts(self, accounts: List[str]) -> None:
+        """保存邮箱账号列表"""
+        self.config["accounts"] = accounts
         self.config.save_config()
-        
+        # 如果服务正在运行，重新初始化通知器
         if self._is_running:
             self._init_notifiers()
-        logger.info(f"[EmailNotixion] 推送间隔: {self._interval}s")
 
-    def _set_text_num(self, num: int) -> None:
-        """设置字符上限"""
-        self._text_num = max(num, 10)
-        self.config["text_num"] = self._text_num
+    def _update_config(self, key: str, value, min_value=None) -> None:
+        """统一的配置更新方法"""
+        if min_value is not None:
+            value = max(value, min_value)
+        
+        setattr(self, f"_{key}", value)
+        self.config[key] = value
         self.config.save_config()
         
+        # 如果服务正在运行，重新初始化通知器
         if self._is_running:
             self._init_notifiers()
-        logger.info(f"[EmailNotixion] 字符上限: {self._text_num}")
 
     def _save_active_targets(self) -> None:
         """保存活跃目标"""
@@ -158,14 +143,6 @@ class EmailNotixion(Star):
             self._targets.add(uid)
             self._save_active_targets()
             logger.info(f"[EmailNotixion] 注册目标: {uid}")
-        
-        # 恢复保存的目标
-        saved_targets = self.config.get("active_targets", [])
-        for target_uid in saved_targets:
-            if target_uid not in self._targets:
-                self._targets.add(target_uid)
-                if target_uid == uid:
-                    self._event_map[target_uid] = event
         
         if not self._is_running and self._targets:
             self._start_email_service()
@@ -215,24 +192,25 @@ class EmailNotixion(Star):
         while self._is_running:
             try:
                 # 并发检查所有账号的新邮件
-                check_tasks = []
-                for user, notifier in self._notifiers.items():
-                    task = asyncio.to_thread(notifier.check_and_notify)
-                    check_tasks.append((user, task))
+                check_tasks = [
+                    asyncio.to_thread(notifier.check_and_notify)
+                    for notifier in self._notifiers.values()
+                ]
                 
-                # 等待所有邮件检查完成
-                for user, task in check_tasks:
-                    try:
-                        notification = await task
-                        if notification:
-                            email_time, subject, mail_content = notification
-                            logger.info(f"[EmailNotixion] 检测到 {user} 的新邮件")
-                            
-                            # 异步发送到所有目标
-                            await self._send_notifications_to_targets(user, email_time, subject, mail_content)
-                            
-                    except Exception as e:
-                        logger.error(f"[EmailNotixion] 检查 {user} 邮件时发生错误: {e}")
+                if check_tasks:
+                    # 等待所有邮件检查完成
+                    results = await asyncio.gather(*check_tasks, return_exceptions=True)
+                    
+                    for (user, notifier), result in zip(self._notifiers.items(), results):
+                        try:
+                            if isinstance(result, Exception):
+                                logger.error(f"[EmailNotixion] 检查 {user} 邮件时发生错误: {result}")
+                            elif result:
+                                email_time, subject, mail_content = result
+                                logger.info(f"[EmailNotixion] 检测到 {user} 的新邮件")
+                                await self._send_notifications_to_targets(user, email_time, subject, mail_content)
+                        except Exception as e:
+                            logger.error(f"[EmailNotixion] 处理 {user} 邮件结果时发生错误: {e}")
                 
                 await asyncio.sleep(self._interval)
                 
@@ -250,8 +228,7 @@ class EmailNotixion(Star):
         # 创建发送任务列表
         send_tasks = []
         for target in list(self._targets):
-            target_event = self._event_map.get(target)
-            if target_event:
+            if target_event := self._event_map.get(target):
                 platform_name = target_event.get_platform_name()
                 logger.debug(f"[EmailNotixion] 📤 向 {target} ({platform_name}) 发送通知")
                 
@@ -261,32 +238,39 @@ class EmailNotixion(Star):
                 logger.warning(f"[EmailNotixion] ⚠ 目标 {target} 没有对应的事件实例")
         
         # 并发发送所有通知
-        for target, task in send_tasks:
-            try:
-                success = await task
-                if success:
+        if send_tasks:
+            results = await asyncio.gather(*[task for _, task in send_tasks], return_exceptions=True)
+            for (target, _), result in zip(send_tasks, results):
+                if isinstance(result, Exception):
+                    logger.error(f"[EmailNotixion] 向 {target} 发送通知时发生异常: {result}")
+                elif result:
                     logger.debug(f"[EmailNotixion] ✅ 邮件通知已发送到 {target}")
                 else:
                     logger.error(f"[EmailNotixion] ❌ 向 {target} 发送通知失败")
-            except Exception as e:
-                logger.error(f"[EmailNotixion] 向 {target} 发送通知时发生异常: {e}")
 
     # ═══════════════════════ 指令处理 ═══════════════════════
+
+    @filter.event_message_type(filter.EventMessageType.ALL)
+    async def _auto_restore_targets(self, event: AstrMessageEvent):
+        """自动恢复活跃推送目标的事件监听器"""
+        uid = event.unified_msg_origin
+        saved_targets = self.config.get("active_targets", [])
+        
+        # 如果当前用户在保存的目标中，但还没有注册event对象，则自动注册
+        if uid in saved_targets and uid not in self._event_map:
+            self._event_map[uid] = event
+            self._targets.add(uid)
+            logger.info(f"[EmailNotixion] 🔄 自动恢复推送目标: {uid}")
+            
+            # 如果服务还没启动，启动服务
+            if not self._is_running and self._targets:
+                self._start_email_service()
 
     @filter.command("email", alias={"mail"})
     async def cmd_email(self, event: AstrMessageEvent, sub: str | None = None, arg: str | None = None):
         """邮件推送插件主指令处理器"""
         uid = event.unified_msg_origin
         action = (sub or "status").lower()
-
-        # 自动检查并恢复保存的活跃目标
-        saved_targets = self.config.get("active_targets", [])
-        for target_uid in saved_targets:
-            if target_uid == uid and target_uid not in self._event_map:
-                self._event_map[target_uid] = event
-                self._targets.add(target_uid)
-                if not self._is_running:
-                    self._start_email_service()
 
         # 推送间隔设置
         if action == "interval":
@@ -297,7 +281,8 @@ class EmailNotixion(Star):
                     sec = float(arg)
                     if sec <= 0:
                         raise ValueError("间隔必须大于0")
-                    self._set_interval(sec)
+                    self._update_config("interval", sec, 0.5)
+                    logger.info(f"[EmailNotixion] 推送间隔: {self._interval}s")
                     yield event.plain_result(f"[EmailNotixion] ✅ 间隔已设置为 {sec} 秒")
                 except ValueError:
                     yield event.plain_result("请提供有效的正数秒数，如: /email interval 5")
@@ -312,7 +297,8 @@ class EmailNotixion(Star):
                     num = int(arg)
                     if num < 10:
                         raise ValueError("字符上限不能小于10")
-                    self._set_text_num(num)
+                    self._update_config("text_num", num, 10)
+                    logger.info(f"[EmailNotixion] 字符上限: {self._text_num}")
                     yield event.plain_result(f"[EmailNotixion] ✅ 字符上限已设置为 {num} 字符")
                 except ValueError:
                     yield event.plain_result("请提供有效的整数（≥10），如: /email text 100")
@@ -325,8 +311,6 @@ class EmailNotixion(Star):
                 return
                 
             if self._add_account(arg):
-                if self._is_running:
-                    self._init_notifiers()
                 yield event.plain_result("[EmailNotixion] ✅ 已添加账号")
             else:
                 yield event.plain_result("[EmailNotixion] ❌ 账号已存在或格式错误")
@@ -338,8 +322,6 @@ class EmailNotixion(Star):
                 return
                 
             if self._del_account(arg):
-                if self._is_running:
-                    self._init_notifiers()
                 yield event.plain_result("[EmailNotixion] ✅ 已删除账号")
             else:
                 yield event.plain_result("[EmailNotixion] ❌ 未找到指定账号（需要完整邮箱地址）")
@@ -348,11 +330,8 @@ class EmailNotixion(Star):
         if action == "list":
             accounts = self._get_accounts()
             if accounts:
-                safe_accounts = []
-                for account in accounts:
-                    parts = account.split(',')
-                    if len(parts) >= 2:
-                        safe_accounts.append(f"{parts[0]},{parts[1]},***")
+                safe_accounts = [f"{acc.split(',')[0]},{acc.split(',')[1]},***" 
+                               for acc in accounts if len(acc.split(',')) >= 2]
                 text = "当前账号列表:\n" + "\n".join(safe_accounts)
             else:
                 text = "当前账号列表:\n<空>"
@@ -414,7 +393,8 @@ class EmailNotixion(Star):
 ⚡ 运行状态：
   服务运行: {self._is_running}
   账号数量: {len(self._notifiers)}
-  监控任务: {'运行中' if self._email_task and not self._email_task.done() else '已停止'}"""
+  监控任务: {'运行中' if self._email_task and not self._email_task.done() else '已停止'}
+  保存的目标: {self.config.get("active_targets", [])}"""
             
             yield event.plain_result(debug_info)
             return
