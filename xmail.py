@@ -1,70 +1,81 @@
 """
-EmailNotifier - 独立同步邮件检查模块
+EmailNotifier - 同步邮件检查模块
 
-⚠️ 重要说明：
-本模块是一个独立的同步模块，专门设计用于在独立线程中运行。
-所有方法都是同步的，使用标准的阻塞I/O操作。
-在异步环境中使用时，必须通过 asyncio.to_thread() 包装以避免阻塞事件循环。
-
-设计原则：
-- 保持简单的同步接口，便于理解和维护
-- 通过外部异步包装器确保并发安全性
-- 不直接依赖异步框架，保持模块独立性
+设计说明：
+- 纯同步设计，使用阻塞I/O操作
+- 在异步环境中需通过 asyncio.to_thread() 包装
+- 保持简单接口，便于理解和维护
+- 模块独立，不依赖异步框架
 """
 import imaplib
 import email as email_stdlib
 import time
 import os
 import re
-from datetime import datetime, timedelta, timezone
+from datetime import datetime
 
 class EmailNotifier:
-    """
-    同步邮件通知器
+    """同步邮件通知器
     
     ⚠️ 重要：此类使用同步阻塞的 imaplib 库
-    - 所有网络操作（连接、搜索、获取）都会阻塞当前线程
+    - 所有网络操作都会阻塞当前线程
     - 在异步环境中使用时必须通过 asyncio.to_thread() 包装
-    - 这种设计是为了保持简单性和线程安全性
     """
+    
     def __init__(self, host, user, token, logger=None):
         self.host = host
         self.user = user
         self.token = token
         self.last_uid = None
         self.mail = None
-        self.logger = logger  # 可选的外部日志记录器
+        self.logger = logger
         self.text_num = 50  # 默认文本长度限制
 
-    def _connect(self):
-        """
-        建立并维护 IMAP 连接
+    def _log(self, message, level='info'):
+        """统一日志记录"""
+        if self.logger:
+            getattr(self.logger, level)(message)
+        else:
+            print(message)
+
+    def test_connection(self) -> bool:
+        """测试IMAP连接是否有效
         
-        ⚠️ 阻塞操作：此方法包含同步网络I/O操作，会阻塞当前线程
-        在异步环境中调用时必须使用 asyncio.to_thread() 包装
+        ⚠️ 阻塞操作：包含同步网络I/O操作
+        
+        返回值：
+        - True: 连接成功
+        - False: 连接失败
+        """
+        try:
+            # 尝试建立连接
+            test_mail = imaplib.IMAP4_SSL(self.host)
+            test_mail.login(self.user, self.token)
+            test_mail.select("INBOX")
+            test_mail.logout()
+            return True
+        except Exception as e:
+            self._log(f"[EmailNotifier] 连接测试失败 {self.user}: {e}", 'error')
+            return False
+
+    def _connect(self):
+        """建立并维护 IMAP 连接
+        
+        ⚠️ 阻塞操作：包含同步网络I/O操作
         """
         try:
             # 检查连接是否仍然有效
             self.mail.noop()
         except (AttributeError, imaplib.IMAP4.error):
-            # 如果连接丢失或未初始化，则重新连接
-            if self.logger:
-                self.logger.info(f"[EmailNotifier] 正在连接到邮箱 {self.host}...")
-            else:
-                print("正在连接到邮箱...")
+            # 重新连接
+            self._log(f"[EmailNotifier] 正在连接到邮箱 {self.host}...")
             self.mail = imaplib.IMAP4_SSL(self.host)
             self.mail.login(self.user, self.token)
-            if self.logger:
-                self.logger.info("[EmailNotifier] 连接成功")
-            else:
-                print("连接成功。")
+            self._log("[EmailNotifier] 连接成功")
         self.mail.select("INBOX")
 
     def _html_to_text(self, html_content):
-        """
-        将HTML内容转换为纯文本
-        首先解码quoted-printable编码，然后去除HTML标签
-        """
+        """将HTML内容转换为纯文本"""
         if not html_content:
             return ""
         
@@ -107,7 +118,7 @@ class EmailNotifier:
         return text.strip()
 
     def _get_email_content(self, msg):
-        """从邮件消息中解析主题和正文内容，限制text_num个字符。"""
+        """从邮件消息中解析主题和正文内容，限制text_num个字符"""
         subject = ""
         # 解码主题
         if msg['Subject']:
@@ -116,7 +127,7 @@ class EmailNotifier:
                 if isinstance(subject, bytes):
                     subject = subject.decode()
             except Exception:
-                subject = msg['Subject'] # Fallback
+                subject = msg['Subject']  # Fallback
         
         # 限制主题长度为text_num个字符
         if len(subject) > self.text_num:
@@ -165,12 +176,12 @@ class EmailNotifier:
                     elif content_type == "text/html":
                         content = self._process_content(self._html_to_text(text))
             except Exception:
-                pass # Keep default
+                pass  # Keep default
         
         return subject, content
 
     def _process_content(self, text):
-        """处理文本内容，统一换行符并限制长度。"""
+        """处理文本内容，统一换行符并限制长度"""
         if not text:
             return "（无文本内容）"
         
@@ -187,8 +198,7 @@ class EmailNotifier:
         return text.strip() if text.strip() else "（无文本内容）"
 
     def check_and_notify(self):
-        """
-        检查新邮件并返回其详细信息
+        """检查新邮件并返回其详细信息
         
         ⚠️ 阻塞操作：此方法包含多个同步网络I/O操作，会阻塞当前线程
         在异步环境中调用时必须使用 asyncio.to_thread() 包装
@@ -199,27 +209,25 @@ class EmailNotifier:
         """
         try:
             self._connect()
-            # ① 搜索所有邮件UID
+            
+            # 搜索所有邮件UID
             typ, data = self.mail.uid('SEARCH', None, 'ALL')
             if typ != 'OK' or not data or not data[0]:
-                return None # 邮箱为空
+                return None  # 邮箱为空
 
             latest_uid = data[0].split()[-1]
 
             # 如果是第一次运行，则将最新邮件ID设为基准，不通知
             if self.last_uid is None:
                 self.last_uid = latest_uid
-                if self.logger:
-                    self.logger.info(f"[EmailNotifier] 初始化完成，当前最新邮件ID: {latest_uid.decode()}")
-                else:
-                    print(f"初始化完成，当前最新邮件ID: {latest_uid.decode()}")
+                self._log(f"[EmailNotifier] 初始化完成，当前最新邮件ID: {latest_uid.decode()}")
                 return None
 
-            # ② 如果没有新邮件，则直接返回
+            # 如果没有新邮件，则直接返回
             if latest_uid == self.last_uid:
                 return None
 
-            # ③ 获取最新邮件的日期和内容
+            # 获取最新邮件的日期和内容
             typ, msg_data = self.mail.uid('FETCH', latest_uid, '(RFC822)')
             if typ != 'OK':
                 return None
@@ -232,32 +240,28 @@ class EmailNotifier:
             if date_tuple:
                 local_date = datetime.fromtimestamp(email_stdlib.utils.mktime_tz(date_tuple))
 
-            # ④ 更新ID并返回邮件内容
+            # 更新ID并返回邮件内容
             self.last_uid = latest_uid
             subject, mail_content = self._get_email_content(msg)
             return local_date, subject, mail_content
 
         except (imaplib.IMAP4.error, Exception) as e:
-            # 统一处理所有预期的和未知的错误
+            # 统一处理所有异常
             log_message = f"[EmailNotifier] IMAP 错误: {e}" if isinstance(e, imaplib.IMAP4.error) else f"[EmailNotifier] 发生未知错误: {e}"
-            if self.logger:
-                self.logger.error(log_message)
-            else:
-                print(log_message)
+            self._log(log_message, 'error')
             
-            # 统一的清理逻辑
+            # 清理连接
             if self.mail:
                 try:
                     self.mail.logout()
                 except Exception:
                     pass  # 注销失败也无需额外操作
             self.mail = None
-            return None  # 确保出错时返回 None
+            return None
 
 
     def run(self, interval=10):
-        """
-        启动轮询循环
+        """启动轮询循环
         
         ⚠️ 阻塞操作：此方法包含 time.sleep() 会阻塞当前线程
         在异步环境中不应直接使用此方法，而应使用 check_and_notify() 结合 asyncio.sleep()
@@ -290,11 +294,11 @@ if __name__ == "__main__":
     
     # 检查必要的环境变量
     if not all([HOST, USER, TOKEN]):
-        print("错误：请设置必要的环境变量：")
+        print("❌ 错误: 请设置必要的环境变量")
         print("  EMAIL_HOST - IMAP服务器地址")
         print("  EMAIL_USER - 邮箱地址")  
         print("  EMAIL_TOKEN - 应用专用密码")
-        print("\n示例：")
+        print("\n💡 示例:")
         print("  export EMAIL_HOST=imap.gmail.com")
         print("  export EMAIL_USER=user@gmail.com")
         print("  export EMAIL_TOKEN=your_app_password")
@@ -302,9 +306,9 @@ if __name__ == "__main__":
 
     notifier = EmailNotifier(HOST, USER, TOKEN)
     try:
-        print(f"开始监控邮箱: {USER}")
+        print(f"📧 开始监控邮箱: {USER}")
         notifier.run(interval=3)
     except KeyboardInterrupt:
-        print("\n程序已停止。")
+        print("\n⚠️ 程序已停止")
         if notifier.mail:
             notifier.mail.logout()
