@@ -73,7 +73,7 @@ class EmailNotifier:
         except (AttributeError, imaplib.IMAP4.error, OSError, ConnectionError):
             # 重新连接
             try:
-                self._log(f"[EmailNotifier] 正在连接到邮箱 {self.host}...")
+                # self._log(f"[EmailNotifier] 正在连接到邮箱 {self.host}...")
                 if self.mail:
                     try:
                         self.mail.logout()
@@ -84,7 +84,7 @@ class EmailNotifier:
                 self.mail = imaplib.IMAP4_SSL(self.host)
                 self.mail.login(self.user, self.token)
                 self.mail.select("INBOX")
-                self._log("[EmailNotifier] 连接成功")
+                # self._log("[EmailNotifier] 连接成功")
             except Exception as e:
                 self._log(f"[EmailNotifier] 连接失败: {e}", 'error')
                 if self.mail:
@@ -322,7 +322,7 @@ class EmailNotifier:
             except:
                 pass
         self.mail = None
-        self._log(f"[EmailNotifier] 连接已重置: {self.user}", 'info')
+        # self._log(f"[EmailNotifier] 连接已重置: {self.user}", 'info')
 
 
     def run(self, interval=10):

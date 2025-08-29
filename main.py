@@ -258,7 +258,7 @@ class EmailNotixion(Star):
         if not self._notifiers:
             return
             
-        logger.info("[EmailNotixion] 🔄 开始重初始化邮箱连接")
+        # logger.info("[EmailNotixion] 🔄 开始重初始化邮箱连接")
         
         reset_tasks = [
             asyncio.to_thread(notifier.reset_connection)
@@ -268,7 +268,7 @@ class EmailNotixion(Star):
         if reset_tasks:
             await asyncio.gather(*reset_tasks, return_exceptions=True)
             
-        logger.info("[EmailNotixion] ✅ 所有邮箱连接重初始化完成")
+        # logger.info("[EmailNotixion] ✅ 所有邮箱连接重初始化完成")
 
     async def _send_notifications_to_targets(self, user: str, email_time, subject: str, mail_content: str) -> None:
         """发送邮件通知到所有目标"""
