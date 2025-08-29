@@ -30,6 +30,7 @@ class EmailNotifier:
         self.mail = None
         self.logger = logger
         self.text_num = 50  # 默认文本长度限制
+        self.last_successful_check = None  # 上次成功检查时间
 
     def _log(self, message, level='info'):
         """统一日志记录"""
@@ -65,14 +66,34 @@ class EmailNotifier:
         """
         try:
             # 检查连接是否仍然有效
-            self.mail.noop()
-        except (AttributeError, imaplib.IMAP4.error):
+            if self.mail:
+                self.mail.noop()
+            else:
+                raise AttributeError("No connection")
+        except (AttributeError, imaplib.IMAP4.error, OSError, ConnectionError):
             # 重新连接
-            self._log(f"[EmailNotifier] 正在连接到邮箱 {self.host}...")
-            self.mail = imaplib.IMAP4_SSL(self.host)
-            self.mail.login(self.user, self.token)
-            self._log("[EmailNotifier] 连接成功")
-        self.mail.select("INBOX")
+            try:
+                self._log(f"[EmailNotifier] 正在连接到邮箱 {self.host}...")
+                if self.mail:
+                    try:
+                        self.mail.logout()
+                    except:
+                        pass
+                    self.mail = None
+                
+                self.mail = imaplib.IMAP4_SSL(self.host)
+                self.mail.login(self.user, self.token)
+                self.mail.select("INBOX")
+                self._log("[EmailNotifier] 连接成功")
+            except Exception as e:
+                self._log(f"[EmailNotifier] 连接失败: {e}", 'error')
+                if self.mail:
+                    try:
+                        self.mail.logout()
+                    except:
+                        pass
+                    self.mail = None
+                raise
 
     def _html_to_text(self, html_content):
         """将HTML内容转换为纯文本"""
@@ -205,59 +226,103 @@ class EmailNotifier:
         
         返回值：
         - None: 无新邮件或发生错误
-        - tuple: (时间, 主题, 邮件内容)
+        - list: [(时间, 主题, 邮件内容), ...] - 新邮件列表
         """
         try:
             self._connect()
             
-            # 搜索所有邮件UID
+            new_emails = []
+            
+            # 检查未读邮件
+            typ, data = self.mail.uid('SEARCH', None, 'UNSEEN')
+            if typ == 'OK' and data and data[0]:
+                unread_uids = data[0].split()
+                # 处理所有新的未读邮件
+                for uid in unread_uids:
+                    if self.last_uid is None or uid > self.last_uid:
+                        email_info = self._get_email_info(uid)
+                        if email_info:
+                            new_emails.append(email_info)
+                            self.last_uid = uid
+                
+                if new_emails:
+                    self.last_successful_check = time.time()
+                    return new_emails
+            
+            # 检查所有邮件（如果没有未读邮件）
             typ, data = self.mail.uid('SEARCH', None, 'ALL')
             if typ != 'OK' or not data or not data[0]:
-                return None  # 邮箱为空
+                return None
 
-            latest_uid = data[0].split()[-1]
-
-            # 如果是第一次运行，则将最新邮件ID设为基准，不通知
+            all_uids = data[0].split()
+            
+            # 如果是第一次运行，设置基准点
             if self.last_uid is None:
-                self.last_uid = latest_uid
-                self._log(f"[EmailNotifier] 初始化完成，当前最新邮件ID: {latest_uid.decode()}")
+                self.last_uid = all_uids[-1] if all_uids else None
+                self.last_successful_check = time.time()
+                if self.last_uid:
+                    self._log(f"[EmailNotifier] 初始化完成，当前最新邮件ID: {self.last_uid.decode()}")
                 return None
 
-            # 如果没有新邮件，则直接返回
-            if latest_uid == self.last_uid:
+            # 找到所有比last_uid更新的邮件
+            for uid in all_uids:
+                if uid > self.last_uid:
+                    email_info = self._get_email_info(uid)
+                    if email_info:
+                        new_emails.append(email_info)
+                        self.last_uid = uid
+
+            if new_emails:
+                self.last_successful_check = time.time()
+                return new_emails
+            else:
+                self.last_successful_check = time.time()
                 return None
 
-            # 获取最新邮件的日期和内容
-            typ, msg_data = self.mail.uid('FETCH', latest_uid, '(RFC822)')
-            if typ != 'OK':
+        except Exception as e:
+            log_message = f"[EmailNotifier] IMAP 错误: {e}" if isinstance(e, imaplib.IMAP4.error) else f"[EmailNotifier] 发生未知错误: {e}"
+            self._log(log_message, 'error')
+            
+            # 失败时重置连接状态
+            self.last_uid = None
+            if self.mail:
+                try:
+                    self.mail.logout()
+                except Exception:
+                    pass
+            self.mail = None
+            return None
+    
+    def _get_email_info(self, uid):
+        """获取指定UID邮件的详细信息"""
+        try:
+            typ, msg_data = self.mail.uid('FETCH', uid, '(RFC822)')
+            if typ != 'OK' or not msg_data or not msg_data[0]:
                 return None
 
             msg = email_stdlib.message_from_bytes(msg_data[0][1])
             
-            # 获取邮件日期
             local_date = None
             date_tuple = email_stdlib.utils.parsedate_tz(msg['Date'])
             if date_tuple:
                 local_date = datetime.fromtimestamp(email_stdlib.utils.mktime_tz(date_tuple))
 
-            # 更新ID并返回邮件内容
-            self.last_uid = latest_uid
             subject, mail_content = self._get_email_content(msg)
             return local_date, subject, mail_content
-
-        except (imaplib.IMAP4.error, Exception) as e:
-            # 统一处理所有异常
-            log_message = f"[EmailNotifier] IMAP 错误: {e}" if isinstance(e, imaplib.IMAP4.error) else f"[EmailNotifier] 发生未知错误: {e}"
-            self._log(log_message, 'error')
             
-            # 清理连接
-            if self.mail:
-                try:
-                    self.mail.logout()
-                except Exception:
-                    pass  # 注销失败也无需额外操作
-            self.mail = None
+        except Exception as e:
+            self._log(f"[EmailNotifier] 获取邮件信息失败: {e}", 'error')
             return None
+    
+    def reset_connection(self):
+        """重置连接状态，强制重新初始化"""
+        if self.mail:
+            try:
+                self.mail.logout()
+            except:
+                pass
+        self.mail = None
+        self._log(f"[EmailNotifier] 连接已重置: {self.user}", 'info')
 
 
     def run(self, interval=10):
@@ -269,16 +334,30 @@ class EmailNotifier:
         while True:
             notification = self.check_and_notify()
             if notification:
-                email_time, subject, mail_content = notification
-                if self.logger:
-                    self.logger.info(f"[EmailNotifier] 新邮件通知 - 主题: {subject}")
+                # 处理邮件列表
+                if isinstance(notification, list):
+                    for email_time, subject, mail_content in notification:
+                        if self.logger:
+                            self.logger.info(f"[EmailNotifier] 新邮件通知 - 主题: {subject}")
+                        else:
+                            print("\n--- 📧 新邮件通知 ---")
+                            if email_time:
+                                print(f"时间: {email_time.strftime('%Y-%m-%d %H:%M:%S')}")
+                            print(f"主题: {subject}")
+                            print(f"内容: {mail_content}")
+                            print("--------------------")
                 else:
-                    print("\n--- 📧 新邮件通知 ---")
-                    if email_time:
-                        print(f"时间: {email_time.strftime('%Y-%m-%d %H:%M:%S')}")
-                    print(f"主题: {subject}")
-                    print(f"内容: {mail_content}")
-                    print("--------------------")
+                    # 兼容旧版本单邮件格式
+                    email_time, subject, mail_content = notification
+                    if self.logger:
+                        self.logger.info(f"[EmailNotifier] 新邮件通知 - 主题: {subject}")
+                    else:
+                        print("\n--- 📧 新邮件通知 ---")
+                        if email_time:
+                            print(f"时间: {email_time.strftime('%Y-%m-%d %H:%M:%S')}")
+                        print(f"主题: {subject}")
+                        print(f"内容: {mail_content}")
+                        print("--------------------")
             time.sleep(interval)
 
 if __name__ == "__main__":

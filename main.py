@@ -1,5 +1,6 @@
 import asyncio
 import os
+import time
 from typing import List, Optional, Dict, Set
 import yaml
 
@@ -16,7 +17,7 @@ def _load_metadata() -> dict:
         with open(metadata_path, 'r', encoding='utf-8') as f:
             return yaml.safe_load(f)
     except Exception:
-        return {"version": "v1.0.6"}
+        return {"version": "v1.0.7"}
 
 
 _metadata = _load_metadata()
@@ -26,7 +27,7 @@ _metadata = _load_metadata()
     _metadata.get("name", "EmailNotixion"),
     _metadata.get("author", "Temmie"),
     _metadata.get("description", "📧 实时 IMAP 邮件推送插件"),
-    _metadata.get("version", "v1.0.6"),
+    _metadata.get("version", "v1.0.7"),
     _metadata.get("repo", "https://github.com/OlyMarco/EmailNotixion"),
 )
 class EmailNotixion(Star):
@@ -52,6 +53,8 @@ class EmailNotixion(Star):
         self._notifiers: Dict[str, EmailNotifier] = {}
         self._is_running = False
         self._email_task: Optional[asyncio.Task] = None
+        self._last_reinit_time = 0
+        self._reinit_interval = 600  # 10分钟
         
         # 📊 启动状态日志
         saved_count = len(self.config.get("active_targets", []))
@@ -214,7 +217,13 @@ class EmailNotixion(Star):
         """🔄 邮件监控循环"""
         while self._is_running:
             try:
-                # 并发检查所有账号的新邮件
+                # 检查是否需要重新初始化（每10分钟）
+                current_time = time.time()
+                if current_time - self._last_reinit_time > self._reinit_interval:
+                    await self._reinit_all_connections()
+                    self._last_reinit_time = current_time
+                
+                # 检查邮件
                 check_tasks = [
                     asyncio.to_thread(notifier.check_and_notify)
                     for notifier in self._notifiers.values()
@@ -227,15 +236,39 @@ class EmailNotixion(Star):
                         if isinstance(result, Exception):
                             logger.error(f"[EmailNotixion] ❌ 检查 {user} 邮件时发生错误: {result}")
                         elif result:
-                            email_time, subject, mail_content = result
-                            logger.info(f"[EmailNotixion] 📧 检测到 {user} 的新邮件")
-                            await self._send_notifications_to_targets(user, email_time, subject, mail_content)
+                            # 处理邮件列表（支持多邮件）
+                            if isinstance(result, list):
+                                logger.info(f"[EmailNotixion] 📧 检测到 {user} 的 {len(result)} 封新邮件")
+                                for email_time, subject, mail_content in result:
+                                    await self._send_notifications_to_targets(user, email_time, subject, mail_content)
+                            else:
+                                # 兼容旧版本单邮件格式
+                                email_time, subject, mail_content = result
+                                logger.info(f"[EmailNotixion] 📧 检测到 {user} 的新邮件")
+                                await self._send_notifications_to_targets(user, email_time, subject, mail_content)
                 
                 await asyncio.sleep(self._interval)
                 
             except Exception as e:
                 logger.error(f"[EmailNotixion] ❌ 邮件监控循环错误: {e}")
                 await asyncio.sleep(self._interval)
+
+    async def _reinit_all_connections(self) -> None:
+        """重新初始化所有连接"""
+        if not self._notifiers:
+            return
+            
+        logger.info("[EmailNotixion] 🔄 开始重初始化邮箱连接")
+        
+        reset_tasks = [
+            asyncio.to_thread(notifier.reset_connection)
+            for notifier in self._notifiers.values()
+        ]
+        
+        if reset_tasks:
+            await asyncio.gather(*reset_tasks, return_exceptions=True)
+            
+        logger.info("[EmailNotixion] ✅ 所有邮箱连接重初始化完成")
 
     async def _send_notifications_to_targets(self, user: str, email_time, subject: str, mail_content: str) -> None:
         """发送邮件通知到所有目标"""
@@ -392,7 +425,7 @@ class EmailNotixion(Star):
 
         # 📚 帮助和调试指令
         if action == "help":
-            current_version = _metadata.get("version", "v1.0.6")
+            current_version = _metadata.get("version", "v1.0.7")
             help_text = f"""📧 EmailNotixion 邮件推送插件 {current_version}
 
 🖥️ 基本指令:
@@ -401,6 +434,7 @@ class EmailNotixion(Star):
   /email off         关闭当前会话推送
   /email list        查看邮箱账号状态
   /email debug       查看详细调试信息
+  /email reinit      手动重初始化所有连接
 
 ⚙️ 账号管理:
   /email add <配置>   添加邮箱账号
@@ -418,6 +452,8 @@ class EmailNotixion(Star):
 ✨ 功能特性:
   • 异步非阻塞设计，不影响机器人性能
   • 多账号并发监控，支持自动重连
+  • 智能未读邮件检测，避免邮件丢失
+  • 每10分钟自动重初始化所有连接
   • 会话级推送控制，支持多平台同时使用
   • 插件重载后自动恢复推送状态
   • 智能HTML转文本，支持多种邮件格式"""
@@ -448,12 +484,29 @@ class EmailNotixion(Star):
   有效邮箱账号: {len(valid_accounts)}/{total_accounts} 个
   初始化通知器: {len(self._notifiers)} 个
   保存的目标: {self.config.get("active_targets", [])}
+  上次重初始化: {time.strftime('%Y-%m-%d %H:%M:%S', time.localtime(self._last_reinit_time)) if self._last_reinit_time else '未执行'}
+  重初始化间隔: {self._reinit_interval//60} 分钟
 
 📊 配置参数:
   检查间隔: {self._interval} 秒
   字符上限: {self._text_num} 字符"""
             
             yield event.plain_result(debug_info)
+            return
+
+        # 🔄 服务管理指令
+        if action in {"reinit", "reset", "reconnect"}:
+            if not self._is_running:
+                yield event.plain_result("❌ 邮件监控服务未运行")
+                return
+                
+            try:
+                await self._reinit_all_connections()
+                self._last_reinit_time = time.time()
+                yield event.plain_result("✅ 所有邮箱连接已重新初始化")
+            except Exception as e:
+                logger.error(f"[EmailNotixion] 重初始化失败: {e}")
+                yield event.plain_result("❌ 重新初始化失败，请查看日志")
             return
 
         # 🔄 开关控制指令
@@ -490,6 +543,7 @@ class EmailNotixion(Star):
 ⏱️ 检查间隔: {self._interval} 秒
 📝 字符上限: {self._text_num} 字符
 ⚡ 监控服务: {service_status}
+🔄 自动重连: 每{self._reinit_interval//60}分钟
 
 💡 快速指令:
   /email on/off      开启/关闭当前会话推送
@@ -509,10 +563,11 @@ class EmailNotixion(Star):
         
         self._is_running = True
         self._init_notifiers()
+        self._last_reinit_time = time.time()
         
         # 启动异步邮件监控任务
         self._email_task = asyncio.create_task(self._email_monitor_loop())
-        logger.info(f"[EmailNotixion] 🚀 邮件监控服务已启动 (监控 {len(self._notifiers)} 个账号)")
+        logger.info(f"[EmailNotixion] 🚀 邮件监控服务已启动 (监控 {len(self._notifiers)} 个账号, 重初始化间隔: {self._reinit_interval//60}分钟)")
 
     async def _stop_email_service(self) -> None:
         """停止邮件推送服务并清理资源"""
@@ -521,27 +576,21 @@ class EmailNotixion(Star):
         
         self._is_running = False
         
-        # 取消并等待邮件监控任务完成
+        # 取消邮件监控任务
         if self._email_task and not self._email_task.done():
             self._email_task.cancel()
             try:
                 await self._email_task
             except asyncio.CancelledError:
-                pass  # 正常取消
+                pass
             self._email_task = None
         
-        # 异步清理邮件通知器连接
+        # 清理连接
         if self._notifiers:
-            logger.info("[EmailNotixion] 🧹 正在清理邮件连接...")
-            cleanup_tasks = []
-            
-            for user, notifier in self._notifiers.items():
-                if notifier.mail:
-                    # 使用 asyncio.to_thread 异步执行同步的注销操作
-                    task = asyncio.to_thread(self._safe_logout, notifier)
-                    cleanup_tasks.append(task)
-            
-            # 并发执行所有清理任务
+            cleanup_tasks = [
+                asyncio.to_thread(self._safe_logout, notifier)
+                for notifier in self._notifiers.values() if notifier.mail
+            ]
             if cleanup_tasks:
                 await asyncio.gather(*cleanup_tasks, return_exceptions=True)
         
