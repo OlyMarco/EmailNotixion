@@ -191,7 +191,7 @@ class EmailNotixion(Star):
                 notifier = EmailNotifier(host, user, password, logger)
                 notifier.text_num = self._text_num
                 self._notifiers[user] = notifier
-                logger.info(f"[EmailNotixion] 🔧 初始化账号: {user}")
+                # logger.info(f"[EmailNotixion] 🔧 初始化账号: {user}")
                 
             except Exception as e:
                 logger.error(f"[EmailNotixion] ❌ 初始化账号失败 {account}: {e}")
