@@ -50,7 +50,7 @@ class EmailNotifier:
         """
         try:
             # 尝试建立连接
-            test_mail = imaplib.IMAP4_SSL(self.host)
+            test_mail = imaplib.IMAP4_SSL(self.host, timeout=30)
             test_mail.login(self.user, self.token)
             test_mail.select("INBOX")
             test_mail.logout()
@@ -67,33 +67,34 @@ class EmailNotifier:
         try:
             # 检查连接是否仍然有效
             if self.mail:
-                self.mail.noop()
-            else:
-                raise AttributeError("No connection")
-        except (AttributeError, imaplib.IMAP4.error, OSError, ConnectionError):
-            # 重新连接
-            try:
-                # self._log(f"[EmailNotifier] 正在连接到邮箱 {self.host}...")
-                if self.mail:
-                    try:
-                        self.mail.logout()
-                    except:
-                        pass
-                    self.mail = None
-                
-                self.mail = imaplib.IMAP4_SSL(self.host)
-                self.mail.login(self.user, self.token)
-                self.mail.select("INBOX")
-                # self._log("[EmailNotifier] 连接成功")
-            except Exception as e:
-                self._log(f"[EmailNotifier] 连接失败: {e}", 'error')
-                if self.mail:
-                    try:
-                        self.mail.logout()
-                    except:
-                        pass
-                    self.mail = None
-                raise
+                try:
+                    self.mail.noop()
+                    return
+                except Exception:
+                    pass
+            
+            # 清理旧连接
+            if self.mail:
+                try:
+                    self.mail.logout()
+                except:
+                    pass
+                self.mail = None
+            
+            # 建立新连接
+            self.mail = imaplib.IMAP4_SSL(self.host, timeout=30)
+            self.mail.login(self.user, self.token)
+            self.mail.select("INBOX")
+            
+        except Exception as e:
+            self._log(f"[EmailNotifier] 连接失败: {e}", 'error')
+            if self.mail:
+                try:
+                    self.mail.logout()
+                except:
+                    pass
+                self.mail = None
+            raise
 
     def _html_to_text(self, html_content):
         """将HTML内容转换为纯文本"""
@@ -230,26 +231,27 @@ class EmailNotifier:
         """
         try:
             self._connect()
-            
             new_emails = []
             
             # 检查未读邮件
-            typ, data = self.mail.uid('SEARCH', None, 'UNSEEN')
-            if typ == 'OK' and data and data[0]:
-                unread_uids = data[0].split()
-                # 处理所有新的未读邮件
-                for uid in unread_uids:
-                    if self.last_uid is None or uid > self.last_uid:
-                        email_info = self._get_email_info(uid)
-                        if email_info:
-                            new_emails.append(email_info)
-                            self.last_uid = uid
-                
-                if new_emails:
-                    self.last_successful_check = time.time()
-                    return new_emails
+            try:
+                typ, data = self.mail.uid('SEARCH', None, 'UNSEEN')
+                if typ == 'OK' and data and data[0]:
+                    unread_uids = data[0].split()
+                    for uid in unread_uids:
+                        if self.last_uid is None or uid > self.last_uid:
+                            email_info = self._get_email_info(uid)
+                            if email_info:
+                                new_emails.append(email_info)
+                                self.last_uid = uid
+                    
+                    if new_emails:
+                        self.last_successful_check = time.time()
+                        return new_emails
+            except Exception as e:
+                self._log(f"[EmailNotifier] 检查未读邮件错误: {e}", 'warning')
             
-            # 检查所有邮件（如果没有未读邮件）
+            # 检查所有邮件
             typ, data = self.mail.uid('SEARCH', None, 'ALL')
             if typ != 'OK' or not data or not data[0]:
                 return None
@@ -260,8 +262,6 @@ class EmailNotifier:
             if self.last_uid is None:
                 self.last_uid = all_uids[-1] if all_uids else None
                 self.last_successful_check = time.time()
-                if self.last_uid:
-                    self._log(f"[EmailNotifier] 初始化完成，当前最新邮件ID: {self.last_uid.decode()}")
                 return None
 
             # 找到所有比last_uid更新的邮件
@@ -278,20 +278,21 @@ class EmailNotifier:
             else:
                 self.last_successful_check = time.time()
                 return None
-
-        except Exception as e:
-            log_message = f"[EmailNotifier] IMAP 错误: {e}" if isinstance(e, imaplib.IMAP4.error) else f"[EmailNotifier] 发生未知错误: {e}"
-            self._log(log_message, 'error')
             
-            # 失败时重置连接状态
-            self.last_uid = None
-            if self.mail:
-                try:
-                    self.mail.logout()
-                except Exception:
-                    pass
-            self.mail = None
+        except Exception as e:
+            self._log(f"[EmailNotifier] 检查邮件错误: {e}", 'error')
+            self._reset_connection_state()
             return None
+    
+    def _reset_connection_state(self):
+        """重置连接状态"""
+        self.last_uid = None
+        if self.mail:
+            try:
+                self.mail.logout()
+            except Exception:
+                pass
+        self.mail = None
     
     def _get_email_info(self, uid):
         """获取指定UID邮件的详细信息"""
@@ -319,10 +320,9 @@ class EmailNotifier:
         if self.mail:
             try:
                 self.mail.logout()
-            except:
+            except Exception:
                 pass
         self.mail = None
-        # self._log(f"[EmailNotifier] 连接已重置: {self.user}", 'info')
 
 
     def run(self, interval=10):
