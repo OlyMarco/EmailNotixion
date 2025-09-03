@@ -232,6 +232,8 @@ class EmailNotifier:
         try:
             self._connect()
             new_emails = []
+            current_time = time.time()
+            two_minutes_ago = current_time - 120  # 2分钟前的时间戳
             
             # 检查未读邮件
             try:
@@ -242,8 +244,17 @@ class EmailNotifier:
                         if self.last_uid is None or uid > self.last_uid:
                             email_info = self._get_email_info(uid)
                             if email_info:
-                                new_emails.append(email_info)
-                                self.last_uid = uid
+                                email_time, subject, mail_content = email_info
+                                # 新的判定条件：未读且2分钟内
+                                if email_time and email_time.timestamp() > two_minutes_ago:
+                                    new_emails.append(email_info)
+                                    self.last_uid = uid
+                                elif email_time and email_time.timestamp() <= two_minutes_ago:
+                                    self.last_uid = uid  # 更新UID但不推送
+                                elif not email_time:
+                                    # 如果无法获取邮件时间，为了安全起见也加入新邮件列表
+                                    new_emails.append(email_info)
+                                    self.last_uid = uid
                     
                     if new_emails:
                         self.last_successful_check = time.time()
@@ -251,7 +262,7 @@ class EmailNotifier:
             except Exception as e:
                 self._log(f"[EmailNotifier] 检查未读邮件错误: {e}", 'warning')
             
-            # 检查所有邮件
+            # 检查所有邮件 - 应用相同的时间限制
             typ, data = self.mail.uid('SEARCH', None, 'ALL')
             if typ != 'OK' or not data or not data[0]:
                 return None
@@ -264,13 +275,22 @@ class EmailNotifier:
                 self.last_successful_check = time.time()
                 return None
 
-            # 找到所有比last_uid更新的邮件
+            # 找到所有比last_uid更新的邮件，并检查时间条件
             for uid in all_uids:
                 if uid > self.last_uid:
                     email_info = self._get_email_info(uid)
                     if email_info:
-                        new_emails.append(email_info)
-                        self.last_uid = uid
+                        email_time, subject, mail_content = email_info
+                        # 应用相同的时间判定条件：2分钟内
+                        if email_time and email_time.timestamp() > two_minutes_ago:
+                            new_emails.append(email_info)
+                            self.last_uid = uid
+                        elif email_time and email_time.timestamp() <= two_minutes_ago:
+                            self.last_uid = uid  # 更新UID但不推送
+                        elif not email_time:
+                            # 如果无法获取邮件时间，为了安全起见也加入新邮件列表
+                            new_emails.append(email_info)
+                            self.last_uid = uid
 
             if new_emails:
                 self.last_successful_check = time.time()
