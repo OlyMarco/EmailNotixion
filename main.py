@@ -191,7 +191,6 @@ class EmailNotixion(Star):
                 notifier = EmailNotifier(host, user, password, logger)
                 notifier.text_num = self._text_num
                 self._notifiers[user] = notifier
-                # logger.info(f"[EmailNotixion] 🔧 初始化账号: {user}")
                 
             except Exception as e:
                 logger.error(f"[EmailNotixion] ❌ 初始化账号失败 {account}: {e}")
@@ -221,7 +220,6 @@ class EmailNotixion(Star):
                 
                 # 每2分钟重建所有邮箱连接
                 if current_time - self._last_recreate_time > self._recreate_interval:
-                    logger.info("[EmailNotixion] 🔄 重建所有邮箱连接")
                     self._init_notifiers()
                     self._last_recreate_time = current_time
                 
