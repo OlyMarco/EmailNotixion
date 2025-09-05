@@ -17,7 +17,7 @@ def _load_metadata() -> dict:
         with open(metadata_path, 'r', encoding='utf-8') as f:
             return yaml.safe_load(f)
     except Exception:
-        return {"version": "v1.0.7"}
+        return {"version": "v1.0.8"}
 
 
 _metadata = _load_metadata()
@@ -27,7 +27,7 @@ _metadata = _load_metadata()
     _metadata.get("name", "EmailNotixion"),
     _metadata.get("author", "Temmie"),
     _metadata.get("description", "📧 实时 IMAP 邮件推送插件"),
-    _metadata.get("version", "v1.0.7"),
+    _metadata.get("version", "v1.0.8"),
     _metadata.get("repo", "https://github.com/OlyMarco/EmailNotixion"),
 )
 class EmailNotixion(Star):
@@ -181,6 +181,14 @@ class EmailNotixion(Star):
     
     def _init_notifiers(self) -> None:
         """🔧 初始化邮件通知器"""
+        # 保存现有通知器的状态
+        existing_states = {}
+        for user, notifier in self._notifiers.items():
+            existing_states[user] = {
+                'last_uid': notifier.last_uid,
+                'last_successful_check': notifier.last_successful_check
+            }
+        
         self._notifiers.clear()
         valid_accounts = self._get_valid_accounts()
         
@@ -190,6 +198,12 @@ class EmailNotixion(Star):
                 host, user, password = (part.strip() for part in parts)
                 notifier = EmailNotifier(host, user, password, logger)
                 notifier.text_num = self._text_num
+                
+                # 恢复之前的状态
+                if user in existing_states:
+                    notifier.last_uid = existing_states[user]['last_uid']
+                    notifier.last_successful_check = existing_states[user]['last_successful_check']
+                
                 self._notifiers[user] = notifier
                 
             except Exception as e:
@@ -412,7 +426,7 @@ class EmailNotixion(Star):
 
         # 📚 帮助和调试指令
         if action == "help":
-            current_version = _metadata.get("version", "v1.0.7")
+            current_version = _metadata.get("version", "v1.0.8")
             help_text = f"""📧 EmailNotixion 邮件推送插件 {current_version}
 
 🖥️ 基本指令:

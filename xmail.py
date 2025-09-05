@@ -234,6 +234,7 @@ class EmailNotifier:
             new_emails = []
             current_time = time.time()
             two_minutes_ago = current_time - 120  # 2分钟前的时间戳
+            processed_uids = set()  # 防止重复处理
             
             # 检查未读邮件
             try:
@@ -241,6 +242,10 @@ class EmailNotifier:
                 if typ == 'OK' and data and data[0]:
                     unread_uids = data[0].split()
                     for uid in unread_uids:
+                        if uid in processed_uids:
+                            continue
+                        processed_uids.add(uid)
+                        
                         if self.last_uid is None or uid > self.last_uid:
                             email_info = self._get_email_info(uid)
                             if email_info:
@@ -255,16 +260,15 @@ class EmailNotifier:
                                     # 如果无法获取邮件时间，为了安全起见也加入新邮件列表
                                     new_emails.append(email_info)
                                     self.last_uid = uid
-                    
-                    if new_emails:
-                        self.last_successful_check = time.time()
-                        return new_emails
             except Exception as e:
                 self._log(f"[EmailNotifier] 检查未读邮件错误: {e}", 'warning')
             
-            # 检查所有邮件 - 应用相同的时间限制
+            # 检查所有邮件 - 只处理未在未读检查中处理过的邮件
             typ, data = self.mail.uid('SEARCH', None, 'ALL')
             if typ != 'OK' or not data or not data[0]:
+                if new_emails:
+                    self.last_successful_check = time.time()
+                    return new_emails
                 return None
 
             all_uids = data[0].split()
@@ -277,7 +281,11 @@ class EmailNotifier:
 
             # 找到所有比last_uid更新的邮件，并检查时间条件
             for uid in all_uids:
+                if uid in processed_uids:
+                    continue  # 跳过已处理的邮件
+                    
                 if uid > self.last_uid:
+                    processed_uids.add(uid)
                     email_info = self._get_email_info(uid)
                     if email_info:
                         email_time, subject, mail_content = email_info
@@ -305,8 +313,7 @@ class EmailNotifier:
             return None
     
     def _reset_connection_state(self):
-        """重置连接状态"""
-        self.last_uid = None
+        """重置连接状态，但保留UID状态"""
         if self.mail:
             try:
                 self.mail.logout()
