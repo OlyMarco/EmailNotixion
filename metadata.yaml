@@ -1,5 +1,5 @@
 name: EmailNotixion
 author: Temmie
-version: v1.0.8
-description: "实时IMAP邮件推送插件"
+version: v1.1.0
+description: "📧 实时 IMAP 邮件推送插件 - 多账号并发监控、异步非阻塞、跨平台支持"
 repo: https://github.com/OlyMarco/EmailNotixion

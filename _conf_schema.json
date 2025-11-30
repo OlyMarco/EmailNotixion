@@ -1,25 +1,26 @@
 {
   "accounts": {
-    "description": "邮箱账户列表，每项格式 imap,user@domain,password",
-    "type": "list",
-    "default": []
-  },
-  "interval": {
-    "description": "邮件推送间隔（秒）",
-    "type": "float",
-    "default": 3,
-    "hint": "最小 0.5 秒；修改后立即生效"
-  },
-  "text_num": {
-    "description": "邮件主题和内容的最大字符数",
-    "type": "int",
-    "default": 50,
-    "hint": "超出部分将显示为...，最小值为 10"
-  },
-  "active_targets": {
-    "description": "活跃推送目标列表，插件重载后自动恢复推送状态",
+    "description": "邮箱账户配置列表",
     "type": "list",
     "default": [],
-    "hint": "保存的推送目标会在发送消息时自动恢复推送状态，无需手动重新开启"
+    "hint": "每项格式: IMAP服务器,邮箱地址,应用密码"
+  },
+  "interval": {
+    "description": "邮件检查间隔（秒）",
+    "type": "float",
+    "default": 3,
+    "hint": "设置邮件检查的时间间隔\n\n最小值: 0.5秒\n，推荐值: 3-10秒，间隔过短可能被邮件服务器限制"
+  },
+  "text_num": {
+    "description": "邮件内容字符上限",
+    "type": "int",
+    "default": 50,
+    "hint": "限制推送消息中邮件主题和正文的显示长度\n\n最小值: 10字符，推荐值: 50-200字符，超出部分将显示为..."
+  },
+  "active_targets": {
+    "description": "活跃推送目标列表（自动管理）",
+    "type": "list",
+    "default": [],
+    "hint": "此配置由插件自动管理，用于保存已开启推送的会话\n插件重载后，用户发送消息时会自动恢复推送状态"
   }
 }
