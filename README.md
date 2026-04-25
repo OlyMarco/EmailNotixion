@@ -18,10 +18,10 @@
 
 </div>
 
----
 
 ## ✨ 功能特性
 
+<div align="center">
 <table>
 <tr>
 <td width="50%">
@@ -60,6 +60,7 @@
 </td>
 </tr>
 </table>
+</div>
 
 ## 📸 效果展示
 
