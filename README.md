@@ -4,7 +4,7 @@
 
 **实时 IMAP 邮件推送插件 for AstrBot**
 
-[![Version](https://img.shields.io/badge/version-v1.1.0-blue.svg)](https://github.com/OlyMarco/EmailNotixion/releases)
+[![Version](https://img.shields.io/badge/version-v1.1.1-blue.svg)](https://github.com/OlyMarco/EmailNotixion/releases)
 [![License](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
 [![AstrBot](https://img.shields.io/badge/AstrBot-Plugin-purple.svg)](https://github.com/Soulter/AstrBot)
 
