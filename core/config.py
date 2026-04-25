@@ -1,4 +1,3 @@
-"""配置常量和数据类型定义"""
 from dataclasses import dataclass
 from enum import Enum
 from typing import Optional
@@ -18,7 +17,7 @@ class Config:
 
 
 class LogLevel(Enum):
-    """日志级别"""
+    """日志级别枚举"""
     DEBUG = "debug"
     INFO = "info"
     WARNING = "warning"

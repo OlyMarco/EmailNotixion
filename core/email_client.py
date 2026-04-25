@@ -1,10 +1,10 @@
-"""邮件检查模块 - 同步 IMAP 实现"""
 import imaplib
 import email as email_stdlib
 import time
 import re
+from collections import deque
 from datetime import datetime
-from typing import Optional, List, Tuple
+from typing import Optional, List, Tuple, Deque
 
 
 class EmailConfig:
@@ -12,19 +12,42 @@ class EmailConfig:
     CONNECTION_TIMEOUT = 30
     NEW_EMAIL_WINDOW = 120
     DEFAULT_TEXT_NUM = 50
+    MAX_DEDUP_SIZE = 1000
+
+
+def truncate_text(text: str, limit: int, suffix: str = "...") -> str:
+    """统一文本截断函数
+
+    Args:
+        text: 待截断文本
+        limit: 字符上限
+        suffix: 超出时的后缀
+
+    Returns:
+        截断后的文本（如果超长则添加后缀）
+    """
+    if not text or len(text) <= limit:
+        return text or ""
+    return text[:limit] + suffix
 
 
 class EmailNotifier:
     """同步邮件通知器"""
-    
-    def __init__(self, host: str, user: str, token: str, logger=None):
-        self.host = host
-        self.user = user
-        self.token = token
+
+    def __init__(
+        self,
+        host: str,
+        user: str,
+        token: str,
+        logger: Optional[object] = None
+    ):
+        self.host: str = host
+        self.user: str = user
+        self.token: str = token
         self.last_uid: Optional[bytes] = None
         self.mail: Optional[imaplib.IMAP4_SSL] = None
-        self.logger = logger
-        self.text_num = EmailConfig.DEFAULT_TEXT_NUM
+        self.logger: Optional[object] = logger
+        self.text_num: int = EmailConfig.DEFAULT_TEXT_NUM
         self.last_successful_check: Optional[float] = None
 
     def _log(self, message: str, level: str = 'info') -> None:
@@ -41,7 +64,7 @@ class EmailNotifier:
                 self.mail = None
 
     def test_connection(self) -> bool:
-        test_mail = None
+        test_mail: Optional[imaplib.IMAP4_SSL] = None
         try:
             test_mail = imaplib.IMAP4_SSL(self.host, timeout=EmailConfig.CONNECTION_TIMEOUT)
             test_mail.login(self.user, self.token)
@@ -65,7 +88,7 @@ class EmailNotifier:
                     return
                 except Exception:
                     pass
-            
+
             self.cleanup()
             self.mail = imaplib.IMAP4_SSL(self.host, timeout=EmailConfig.CONNECTION_TIMEOUT)
             self.mail.login(self.user, self.token)
@@ -78,44 +101,44 @@ class EmailNotifier:
     def _html_to_text(self, html: str) -> str:
         if not html:
             return ""
-        
-        def decode_qp(match):
+
+        def decode_qp(match: re.Match) -> str:
             try:
                 hex_str = match.group(0).replace('=', '')
                 if len(hex_str) % 2 == 0:
                     return bytes.fromhex(hex_str).decode('utf-8', errors='ignore')
-            except:
+            except Exception:
                 pass
             return match.group(0)
-        
+
         text = re.sub(r'(?:=[0-9A-F]{2})+', decode_qp, html)
         text = text.replace('=3D', '=')
         text = re.sub(r'<style[^>]*>.*?</style>', '', text, flags=re.DOTALL | re.IGNORECASE)
         text = re.sub(r'<script[^>]*>.*?</script>', '', text, flags=re.DOTALL | re.IGNORECASE)
         text = re.sub(r'<[^>]+>', '', text)
-        
+
         entities = {'&nbsp;': ' ', '&lt;': '<', '&gt;': '>', '&amp;': '&', '&quot;': '"'}
         for entity, char in entities.items():
             text = text.replace(entity, char)
-        
+
         return re.sub(r'\s+', ' ', text).strip()
 
     def _get_email_content(self, msg) -> Tuple[str, str]:
-        subject = ""
+        subject: str = ""
         if msg['Subject']:
             try:
                 decoded = email_stdlib.header.decode_header(msg['Subject'])[0][0]
                 subject = decoded.decode() if isinstance(decoded, bytes) else decoded
             except Exception:
-                subject = msg['Subject']
-        
-        if len(subject) > self.text_num:
-            subject = subject[:self.text_num] + "..."
+                subject = str(msg['Subject'])
 
-        content = "（无文本内容）"
-        
+        subject = truncate_text(subject, self.text_num)
+
+        content: str = "（无文本内容）"
+
         if msg.is_multipart():
-            text_content = html_content = None
+            text_content: Optional[str] = None
+            html_content: Optional[str] = None
             for part in msg.walk():
                 ct = part.get_content_type()
                 try:
@@ -130,7 +153,7 @@ class EmailNotifier:
                         html_content = decoded
                 except Exception:
                     continue
-            
+
             if text_content:
                 content = self._process_content(text_content)
             elif html_content:
@@ -145,15 +168,14 @@ class EmailNotifier:
                     content = self._process_content(text)
             except Exception:
                 pass
-        
+
         return subject, content
 
     def _process_content(self, text: str) -> str:
         if not text:
             return "（无文本内容）"
         text = ' '.join(text.split())
-        if len(text) > self.text_num:
-            text = text[:self.text_num] + "..."
+        text = truncate_text(text, self.text_num)
         return text.strip() or "（无文本内容）"
 
     def _is_recent(self, email_time: Optional[datetime]) -> bool:
@@ -167,7 +189,7 @@ class EmailNotifier:
     def check_and_notify(self) -> Optional[List[Tuple[Optional[datetime], str, str]]]:
         try:
             self._connect()
-            
+
             typ, data = self.mail.uid('SEARCH', None, 'ALL')
             if typ != 'OK' or not data or not data[0]:
                 return None
@@ -175,32 +197,36 @@ class EmailNotifier:
             all_uids = data[0].split()
             if not all_uids:
                 return None
-            
+
             if self.last_uid is None:
                 self.last_uid = all_uids[-1]
                 self.last_successful_check = time.time()
                 self._log(f"[EmailNotifier] 初始化基准 UID: {self.last_uid}")
                 return None
 
-            new_emails = []
+            new_emails: List[Tuple[Optional[datetime], str, str]] = []
             new_last_uid = self.last_uid
-            
+
             for uid in all_uids:
                 if uid <= self.last_uid:
                     continue
-                
+
                 info = self._get_email_info(uid)
                 if info and self._is_recent(info[0]):
                     new_emails.append(info)
-                
+
                 if uid > new_last_uid:
                     new_last_uid = uid
 
-            self.last_uid = new_last_uid
+            if new_last_uid != self.last_uid:
+                old_uid = self.last_uid
+                self.last_uid = new_last_uid
+                self._log(f"[EmailNotifier] UID 更新: {old_uid} -> {self.last_uid}")
+
             self.last_successful_check = time.time()
-            
+
             return new_emails if new_emails else None
-            
+
         except Exception as e:
             self._log(f"[EmailNotifier] 检查错误: {e}", 'error')
             self.cleanup()
@@ -213,15 +239,38 @@ class EmailNotifier:
                 return None
 
             msg = email_stdlib.message_from_bytes(msg_data[0][1])
-            
-            local_date = None
+
+            local_date: Optional[datetime] = None
             date_tuple = email_stdlib.utils.parsedate_tz(msg['Date'])
             if date_tuple:
                 local_date = datetime.fromtimestamp(email_stdlib.utils.mktime_tz(date_tuple))
 
             subject, content = self._get_email_content(msg)
             return local_date, subject, content
-            
+
         except Exception as e:
             self._log(f"[EmailNotifier] 获取邮件失败: {e}", 'error')
             return None
+
+
+class DedupCache:
+    """去重缓存 - 使用固定大小的 deque 防止内存泄漏"""
+
+    def __init__(self, max_size: int = EmailConfig.MAX_DEDUP_SIZE):
+        self._cache: Deque[str] = deque(maxlen=max_size)
+        self._keys: set = set()
+
+    def add(self, key: str) -> bool:
+        """添加键值，如果已存在返回 False"""
+        if key in self._keys:
+            return False
+        self._keys.add(key)
+        self._cache.append(key)
+        return True
+
+    def __contains__(self, key: str) -> bool:
+        return key in self._keys
+
+    def clear(self) -> None:
+        self._cache.clear()
+        self._keys.clear()
