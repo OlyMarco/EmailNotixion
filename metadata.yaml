@@ -1,5 +1,5 @@
 name: EmailNotixion
 author: Temmie
 version: v1.1.1
-description: "[Email Notifications] 为AstrBot打造的实时IMAP邮件推送插件，支持多账号监控、跨平台推送和状态持久化
+description: "[Email Notifications] 为AstrBot打造的实时IMAP邮件推送插件，支持多账号监控、跨平台推送和状态持久化"
 repo: https://github.com/OlyMarco/EmailNotixion

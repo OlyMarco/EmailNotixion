@@ -63,7 +63,10 @@ class EmailMonitor:
         return self._last_recreate_time
 
     def init_notifiers(self) -> None:
-        for notifier in self._notifiers.values():
+        uid_backup: Dict[str, bytes] = {}
+        for user, notifier in self._notifiers.items():
+            if notifier.last_uid is not None:
+                uid_backup[user] = notifier.last_uid
             notifier.cleanup()
 
         self._notifiers.clear()
@@ -78,6 +81,10 @@ class EmailMonitor:
             try:
                 notifier = EmailNotifier(host, user, password, self._logger)
                 notifier.text_num = self._text_num
+
+                if user in uid_backup:
+                    notifier.last_uid = uid_backup[user]
+
                 self._notifiers[user] = notifier
             except Exception as e:
                 self._log(f"!! 初始化账号失败 {user}: {e}", LogLevel.ERROR)
